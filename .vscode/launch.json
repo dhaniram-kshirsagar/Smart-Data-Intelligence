@@ -1,0 +1,31 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Python: FastAPI",
+      "type": "python",
+      "request": "launch",
+      "module": "api.run",
+      "cwd": "${workspaceFolder}",
+      "justMyCode": true
+    },
+    {
+      "name": "Next.js: dev",
+      "type": "node",
+      "request": "launch",
+      "cwd": "${workspaceFolder}",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"]
+    },
+    {
+      "name": "Combined: Build & Run",
+      "type": "python",
+      "request": "launch",
+      "module": "api.run",
+      "cwd": "${workspaceFolder}",
+      "preLaunchTask": "build-frontend",
+      "justMyCode": true
+    }
+  ]
+}
+

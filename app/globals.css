@@ -1,0 +1,205 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* Light mode */
+  --background: 0 0% 96.1%; /* #f5f5f5 */
+  --foreground: 0 0% 13%; /* #212121 */
+  --card: 0 0% 100%; /* #ffffff */
+  --card-foreground: 0 0% 13%; /* #212121 */
+  --popover: 0 0% 100%; /* #ffffff */
+  --popover-foreground: 0 0% 13%; /* #212121 */
+  --primary: 240 80% 30%; /* #1a237e */
+  --primary-foreground: 0 0% 100%; /* #ffffff */
+  --secondary: 174 100% 24%; /* #00796b */
+  --secondary-foreground: 0 0% 100%; /* #ffffff */
+  --accent: 45 100% 51%; /* #ffc107 */
+  --accent-foreground: 0 0% 0%; /* #000000 */
+  --muted: 0 0% 88%; /* #e0e0e0 */
+  --muted-foreground: 0 0% 38%; /* #616161 */
+  --destructive: 0 68% 50%; /* #d32f2f */
+  --destructive-foreground: 0 0% 100%; /* #ffffff */
+  --border: 0 0% 88%; /* #e0e0e0 */
+  --input: 0 0% 88%; /* #e0e0e0 */
+  --ring: 240 80% 30%; /* #1a237e */
+  --radius: 0.5rem;
+}
+
+.dark {
+  /* Professional dark mode */
+  --background: 240 20% 8%; /* #0f1123 - deep blue-black */
+  --foreground: 0 0% 95%; /* #f2f2f2 - off-white for better eye comfort */
+  --card: 240 25% 12%; /* #171a35 - slightly lighter than background */
+  --card-foreground: 0 0% 95%; /* #f2f2f2 - same as foreground */
+  --popover: 240 25% 12%; /* #171a35 - same as card */
+  --popover-foreground: 0 0% 95%; /* #f2f2f2 - same as foreground */
+  --primary: 240 75% 45%; /* #2a36b1 - brighter blue for visibility */
+  --primary-foreground: 0 0% 100%; /* #ffffff - pure white for contrast */
+  --secondary: 174 75% 32%; /* #00a99d - brighter teal */
+  --secondary-foreground: 0 0% 100%; /* #ffffff - pure white for contrast */
+  --accent: 45 95% 50%; /* #ffc107 - vibrant amber */
+  --accent-foreground: 0 0% 0%; /* #000000 - black for contrast on amber */
+  --muted: 240 20% 16%; /* #1e2142 - subtle muted background */
+  --muted-foreground: 0 0% 75%; /* #bfbfbf - subtle muted text */
+  --destructive: 0 75% 42%; /* #c42b2b - slightly muted red */
+  --destructive-foreground: 0 0% 100%; /* #ffffff - white for contrast */
+  --border: 240 25% 18%; /* #232752 - subtle border */
+  --input: 240 25% 18%; /* #232752 - same as border */
+  --ring: 240 75% 45%; /* #2a36b1 - same as primary */
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    /* Using system fonts similar to Open Sans */
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Open Sans",
+      "Helvetica Neue", sans-serif;
+    font-weight: 400;
+  }
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    /* Using system fonts similar to Roboto */
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Helvetica Neue",
+      sans-serif;
+    font-weight: 700;
+    @apply text-foreground dark:text-white;
+  }
+  code,
+  pre {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  }
+}
+
+/* Updating grid patterns for better visibility */
+.bg-grid-white\/\[0\.02\] {
+  background-size: 30px 30px;
+}
+
+.light .bg-grid-white\/\[0\.02\] {
+  background-image: linear-gradient(to right, rgba(0, 0, 0, 0.05) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(0, 0, 0, 0.05) 1px, transparent 1px);
+  background-color: var(--background);
+}
+
+.dark .bg-grid-white\/\[0\.02\] {
+  background-image: linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+  background-color: var(--background);
+}
+
+/* Animation styles */
+@keyframes float {
+  0% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-20px);
+  }
+  100% {
+    transform: translateY(0px);
+  }
+}
+
+.animate-float {
+  animation: float 6s ease-in-out infinite;
+}
+
+/* Button glow effects */
+.btn-glow,
+.bg-primary,
+button[class*="bg-primary"] {
+  box-shadow: 0 0 15px rgba(26, 35, 126, 0.3);
+}
+
+.dark .btn-glow,
+.dark .bg-primary,
+.dark button[class*="bg-primary"] {
+  box-shadow: 0 0 15px rgba(42, 54, 177, 0.5);
+}
+
+/* Hover effects */
+.hover\:bg-primary:hover,
+button[class*="hover:bg-primary"]:hover {
+  box-shadow: 0 0 20px rgba(26, 35, 126, 0.5);
+}
+
+.dark .hover\:bg-primary:hover,
+.dark button[class*="hover:bg-primary"]:hover {
+  box-shadow: 0 0 20px rgba(42, 54, 177, 0.7);
+}
+
+/* Accent color glow */
+.accent-glow {
+  box-shadow: 0 0 15px rgba(255, 193, 7, 0.3);
+}
+
+.dark .accent-glow {
+  box-shadow: 0 0 15px rgba(255, 193, 7, 0.4);
+}
+
+/* Professional dark mode enhancements */
+.dark .card,
+.dark .bg-card {
+  background-image: linear-gradient(to bottom right, rgba(42, 54, 177, 0.05), rgba(0, 169, 157, 0.05));
+  backdrop-filter: blur(12px);
+}
+
+.dark .border {
+  border-color: rgba(35, 39, 82, 0.6);
+}
+
+/* Enhanced button styles for dark mode */
+.dark .bg-primary {
+  background-image: linear-gradient(to right, hsl(240, 75%, 45%), hsl(240, 70%, 40%));
+}
+
+.dark .bg-secondary {
+  background-image: linear-gradient(to right, hsl(174, 75%, 32%), hsl(174, 70%, 28%));
+}
+
+/* Professional shadows for cards in dark mode */
+.dark .shadow-md {
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2), 0 2px 4px -1px rgba(0, 0, 0, 0.1);
+}
+
+.dark .shadow-lg {
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3), 0 4px 6px -2px rgba(0, 0, 0, 0.15);
+}
+
+/* Subtle hover effects for interactive elements */
+.dark .hover-effect {
+  transition: all 0.2s ease;
+}
+
+.dark .hover-effect:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3);
+}
+
+/* Refined scrollbar for dark mode */
+.dark ::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.dark ::-webkit-scrollbar-track {
+  background: hsl(240, 20%, 12%);
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background: hsl(240, 25%, 25%);
+  border-radius: 5px;
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: hsl(240, 25%, 30%);
+}
+

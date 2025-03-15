@@ -1,0 +1,29 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "build-frontend",
+      "type": "shell",
+      "command": "npx next build && (if not exist api\\static mkdir api\\static) && xcopy /E /I /Y out\\* api\\static\\",
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "new"
+      }
+    },
+    {
+      "label": "install-dependencies",
+      "type": "shell",
+      "command": "npm install && cd api && pip install -r requirements.txt",
+      "group": "none",
+      "presentation": {
+        "reveal": "always",
+        "panel": "new"
+      }
+    }
+  ]
+}
+
