@@ -7,10 +7,11 @@ import DataPuurSidebar from "@/components/datapuur-sidebar"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { FileUpload } from "@/components/datapuur/file-upload"
 import { DatabaseConnection } from "@/components/datapuur/database-connection"
+import { HistoryTab } from "@/components/datapuur/history-tab"
 import { SchemaViewer } from "@/components/datapuur/schema-viewer"
 import { ChunkSizeConfig } from "@/components/datapuur/chunk-size-config"
 import { IngestionMonitor } from "@/components/datapuur/ingestion-monitor"
-import { FileUp, Database, Table, Settings, Activity } from "lucide-react"
+import { FileUp, Database, Table, Settings, Activity, History } from "lucide-react"
 import { motion } from "framer-motion"
 
 export default function IngestionPage() {
@@ -112,7 +113,7 @@ export default function IngestionPage() {
 
               <motion.div variants={container} initial="hidden" animate="show" className="space-y-8">
                 <Tabs defaultValue="file-upload" onValueChange={setActiveTab} className="w-full">
-                  <TabsList className="grid grid-cols-2 mb-8">
+                  <TabsList className="grid grid-cols-3 mb-8">
                     <TabsTrigger value="file-upload" className="flex items-center gap-2">
                       <FileUp className="h-4 w-4" />
                       File Upload
@@ -120,6 +121,10 @@ export default function IngestionPage() {
                     <TabsTrigger value="database" className="flex items-center gap-2">
                       <Database className="h-4 w-4" />
                       Database Connection
+                    </TabsTrigger>
+                    <TabsTrigger value="history" className="flex items-center gap-2">
+                      <History className="h-4 w-4" />
+                      History
                     </TabsTrigger>
                   </TabsList>
 
@@ -156,10 +161,19 @@ export default function IngestionPage() {
                       />
                     </motion.div>
                   </TabsContent>
+
+                  <TabsContent value="history" className="space-y-6">
+                    <motion.div
+                      variants={item}
+                      className="bg-card/80 backdrop-blur-sm p-6 rounded-lg border border-border shadow-md"
+                    >
+                      <HistoryTab />
+                    </motion.div>
+                  </TabsContent>
                 </Tabs>
 
                 {/* Processing status */}
-                {processingStatus && (
+                {processingStatus && activeTab !== "history" && (
                   <motion.div
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -170,7 +184,7 @@ export default function IngestionPage() {
                 )}
 
                 {/* Ingestion Monitor */}
-                {ingestionJobs.length > 0 && (
+                {ingestionJobs.length > 0 && activeTab !== "history" && (
                   <motion.div
                     variants={item}
                     className="bg-card/80 backdrop-blur-sm p-6 rounded-lg border border-border shadow-md"
@@ -184,23 +198,25 @@ export default function IngestionPage() {
                 )}
 
                 {/* Chunk Size Configuration */}
-                <motion.div
-                  variants={item}
-                  className="bg-card/80 backdrop-blur-sm p-6 rounded-lg border border-border shadow-md"
-                >
-                  <h3 className="text-xl font-semibold text-foreground mb-4 flex items-center">
-                    <Settings className="w-5 h-5 mr-2 text-primary" />
-                    Processing Configuration
-                  </h3>
-                  <ChunkSizeConfig
-                    chunkSize={chunkSize}
-                    onChunkSizeChange={handleChunkSizeChange}
-                    disabled={isProcessing}
-                  />
-                </motion.div>
+                {activeTab !== "history" && (
+                  <motion.div
+                    variants={item}
+                    className="bg-card/80 backdrop-blur-sm p-6 rounded-lg border border-border shadow-md"
+                  >
+                    <h3 className="text-xl font-semibold text-foreground mb-4 flex items-center">
+                      <Settings className="w-5 h-5 mr-2 text-primary" />
+                      Processing Configuration
+                    </h3>
+                    <ChunkSizeConfig
+                      chunkSize={chunkSize}
+                      onChunkSizeChange={handleChunkSizeChange}
+                      disabled={isProcessing}
+                    />
+                  </motion.div>
+                )}
 
                 {/* Schema Viewer */}
-                {detectedSchema && (
+                {detectedSchema && activeTab !== "history" && (
                   <motion.div
                     variants={item}
                     className="bg-card/80 backdrop-blur-sm p-6 rounded-lg border border-border shadow-md"

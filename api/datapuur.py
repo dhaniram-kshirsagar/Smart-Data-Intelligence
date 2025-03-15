@@ -1,6 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Request, UploadFile, File, Form, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, status, Request, UploadFile, File, Form, BackgroundTasks, Query
 from sqlalchemy.orm import Session
 from typing import List, Dict, Any, Optional, Union
+from fastapi.responses import FileResponse
 import random
 import uuid
 from datetime import datetime, timedelta
@@ -1057,6 +1058,196 @@ async def get_dashboard_data(current_user: User = Depends(has_role("researcher")
         )[:4]],
         "chart_data": chart_data
     }
+
+# Add this new endpoint to the existing datapuur.py file
+
+@router.get("/file-history", status_code=status.HTTP_200_OK)
+async def get_file_history(
+    page: int = Query(1, ge=1),
+    limit: int = Query(10, ge=1, le=100),
+    current_user: User = Depends(has_role("researcher"))
+):
+    """Get history of uploaded files"""
+    try:
+        # Calculate offset for pagination
+        offset = (page - 1) * limit
+        
+        # Get total count of files
+        total_files = len(uploaded_files)
+        
+        # Get files for current page
+        paginated_files = []
+        
+        # Convert dictionary to list and sort by upload time (newest first)
+        files_list = sorted(
+            [
+                {
+                    "id": file_id,
+                    "filename": info["filename"],
+                    "type": info["type"],
+                    "size": os.path.getsize(info["path"]) if os.path.exists(info["path"]) else 0,
+                    "uploaded_at": info["uploaded_at"],
+                    "uploaded_by": info["uploaded_by"],
+                    "preview_url": f"/api/datapuur/preview/{file_id}",
+                    "download_url": f"/api/datapuur/download/{file_id}",
+                    "status": "available"
+                }
+                for file_id, info in uploaded_files.items()
+            ],
+            key=lambda x: x["uploaded_at"],
+            reverse=True
+        )
+        
+        # Apply pagination
+        paginated_files = files_list[offset:offset + limit]
+        
+        # Log activity
+        log_activity(
+            db=next(get_db()),
+            username=current_user.username,
+            action="View file history",
+            details=f"Viewed file upload history (page {page})"
+        )
+        
+        return {
+            "files": paginated_files,
+            "total": total_files,
+            "page": page,
+            "limit": limit
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error fetching file history: {str(e)}"
+        )
+
+@router.get("/preview/{file_id}", status_code=status.HTTP_200_OK)
+async def preview_file(
+    file_id: str,
+    current_user: User = Depends(has_role("researcher"))
+):
+    """Preview a file"""
+    if file_id not in uploaded_files:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="File not found"
+        )
+    
+    file_info = uploaded_files[file_id]
+    file_path = file_info["path"]
+    
+    if not os.path.exists(file_path):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="File not found on disk"
+        )
+    
+    try:
+        # For CSV files
+        if file_info["type"] == "csv":
+            # Read first 10 rows
+            with open(file_path, 'r', newline='', encoding='utf-8') as csvfile:
+                reader = csv.reader(csvfile)
+                headers = next(reader)
+                rows = []
+                for i, row in enumerate(reader):
+                    if i >= 10:  # Limit to 10 rows
+                        break
+                    rows.append(row)
+            
+            # Log activity
+            log_activity(
+                db=next(get_db()),
+                username=current_user.username,
+                action="File preview",
+                details=f"Previewed file: {file_info['filename']}"
+            )
+            
+            return {
+                "headers": headers,
+                "rows": rows,
+                "filename": file_info["filename"],
+                "type": "csv"
+            }
+        
+        # For JSON files
+        elif file_info["type"] == "json":
+            with open(file_path, 'r', encoding='utf-8') as jsonfile:
+                data = json.load(jsonfile)
+            
+            # If it's an array, limit to first 10 items
+            if isinstance(data, list):
+                preview_data = data[:10]
+            else:
+                preview_data = data
+            
+            # Log activity
+            log_activity(
+                db=next(get_db()),
+                username=current_user.username,
+                action="File preview",
+                details=f"Previewed file: {file_info['filename']}"
+            )
+            
+            return {
+                "data": preview_data,
+                "filename": file_info["filename"],
+                "type": "json"
+            }
+        
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Unsupported file type for preview"
+            )
+    
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error previewing file: {str(e)}"
+        )
+
+@router.get("/download/{file_id}", status_code=status.HTTP_200_OK)
+async def download_file(
+    file_id: str,
+    current_user: User = Depends(has_role("researcher"))
+):
+    """Download a file"""
+    if file_id not in uploaded_files:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="File not found"
+        )
+    
+    file_info = uploaded_files[file_id]
+    file_path = file_info["path"]
+    
+    if not os.path.exists(file_path):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="File not found on disk"
+        )
+    
+    try:
+        # Log activity
+        log_activity(
+            db=next(get_db()),
+            username=current_user.username,
+            action="File download",
+            details=f"Downloaded file: {file_info['filename']}"
+        )
+        
+        return FileResponse(
+            path=file_path,
+            filename=file_info["filename"],
+            media_type="application/octet-stream"
+        )
+    
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error downloading file: {str(e)}"
+        )
 
 # Create data directory if it doesn't exist
 DATA_DIR.mkdir(exist_ok=True)
