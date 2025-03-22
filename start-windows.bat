@@ -32,7 +32,7 @@ pip install -r requirements.txt
 cd ..
 
 :: Build the frontend
-echo Building frontend...
+echo Building Next.js frontend...
 call npx next build
 
 :: Create static directory if it doesn't exist
