@@ -10,7 +10,7 @@ export async function syncRoles() {
   try {
     // In a real app, you would fetch roles from the backend
     // For example:
-    // const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080/api";
+    // const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:9595/api";
     // const token = localStorage.getItem("token");
     // const response = await fetch(`${apiUrl}/admin/roles`, {
     //   headers: {
@@ -40,7 +40,7 @@ export async function saveRoleToBackend(role: any) {
   try {
     // In a real app, you would save the role to the backend
     // For example:
-    // const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080/api";
+    // const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:9595/api";
     // const token = localStorage.getItem("token");
     // const response = await fetch(`${apiUrl}/admin/roles`, {
     //   method: "POST",

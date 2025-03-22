@@ -16,9 +16,14 @@ export function FileUpload({
   onJobCreated,
   onError,
 }) {
-  const [file, setFile] = useState(null)
+  // Update the component to handle multiple files
+  // Change the file state from a single file to an array of files
+  const [files, setFiles] = useState<File[]>([])
+  // Replace the single file state with files array
+  // const [file, setFile] = useState(null)
   const [dragActive, setDragActive] = useState(false)
-  const [uploadProgress, setUploadProgress] = useState(0)
+  // Update the uploadProgress state to track multiple files
+  const [uploadProgress, setUploadProgress] = useState<Record<number, number>>({})
   const [error, setError] = useState("")
   const fileInputRef = useRef(null)
 
@@ -32,140 +37,172 @@ export function FileUpload({
     }
   }
 
+  // Update the drag and drop handler to accept multiple files
   const handleDrop = (e) => {
     e.preventDefault()
     e.stopPropagation()
     setDragActive(false)
 
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      handleFile(e.dataTransfer.files[0])
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      // Process all dropped files
+      const droppedFiles = Array.from(e.dataTransfer.files)
+      handleFiles(droppedFiles)
     }
   }
 
+  // Update the file input change handler to accept multiple files
   const handleChange = (e) => {
     e.preventDefault()
-    if (e.target.files && e.target.files[0]) {
-      handleFile(e.target.files[0])
+    if (e.target.files && e.target.files.length > 0) {
+      // Process all selected files
+      const selectedFiles = Array.from(e.target.files)
+      handleFiles(selectedFiles)
     }
   }
 
-  const handleFile = (file) => {
-    // Check file type
-    const fileType = file.name.split(".").pop().toLowerCase()
-    if (fileType !== "csv" && fileType !== "json") {
-      setError("Only CSV and JSON files are supported")
-      if (onError) onError({ message: "Only CSV and JSON files are supported" })
-      return
-    }
+  // Create a new function to handle multiple files
+  const handleFiles = (newFiles: File[]) => {
+    // Filter out unsupported file types
+    const validFiles = newFiles.filter((file) => {
+      const fileType = file.name.split(".").pop().toLowerCase()
+      if (fileType !== "csv" && fileType !== "json") {
+        setError(`File ${file.name} is not supported. Only CSV and JSON files are allowed.`)
+        return false
+      }
 
-    // Check file size (limit to 50MB for browser processing)
-    if (file.size > 50 * 1024 * 1024) {
-      setError("File size exceeds 50MB limit")
-      if (onError) onError({ message: "File size exceeds 50MB limit" })
-      return
-    }
+      // Check file size (limit to 50MB for browser processing)
+      if (file.size > 50 * 1024 * 1024) {
+        setError(`File ${file.name} exceeds 50MB limit.`)
+        return false
+      }
 
-    setFile(file)
+      return true
+    })
+
+    // Add valid files to the state
+    if (validFiles.length > 0) {
+      setFiles((prevFiles) => [...prevFiles, ...validFiles])
+      setError("")
+    }
+  }
+
+  // Update the removeFile function to remove a specific file
+  const removeFile = (index: number) => {
+    setFiles((prevFiles) => prevFiles.filter((_, i) => i !== index))
+    setUploadProgress({})
     setError("")
   }
 
+  // Update the handleUpload function to handle multiple files
   const handleUpload = async () => {
-    if (!file) return
+    if (files.length === 0) return
 
     setIsProcessing(true)
-    setUploadProgress(0)
+    setUploadProgress({})
     setError("")
-    onStatusChange("Preparing to upload file...")
+    onStatusChange(`Preparing to upload ${files.length} file${files.length > 1 ? "s" : ""}...`)
 
-    const formData = new FormData()
-    formData.append("file", file)
-    formData.append("chunkSize", chunkSize.toString())
+    // Process each file sequentially
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i]
+      try {
+        // Update status for current file
+        onStatusChange(`Uploading file ${i + 1} of ${files.length}: ${file.name}...`)
 
-    try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "/api"}/datapuur/upload`, {
-        method: "POST",
-        body: formData,
-        headers: {
-          // Don't set Content-Type here as it's automatically set with FormData
-          Authorization: `Bearer ${localStorage.getItem("token")}`,
-        },
-      })
+        const formData = new FormData()
+        formData.append("file", file)
+        formData.append("chunkSize", chunkSize.toString())
 
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.detail || "Failed to upload file")
-      }
-
-      const data = await response.json()
-      onStatusChange("File uploaded successfully! Processing data...")
-
-      // Create a new ingestion job
-      const ingestResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "/api"}/datapuur/ingest-file`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${localStorage.getItem("token")}`,
-        },
-        body: JSON.stringify({
-          file_id: data.file_id,
-          file_name: file.name,
-          chunk_size: chunkSize,
-        }),
-      })
-
-      if (!ingestResponse.ok) {
-        const errorData = await ingestResponse.json()
-        throw new Error(errorData.detail || "Failed to start ingestion")
-      }
-
-      const ingestData = await ingestResponse.json()
-
-      // Create a new job object
-      const newJob = {
-        id: ingestData.job_id,
-        name: file.name,
-        type: "file",
-        status: "running",
-        progress: 0,
-        startTime: new Date().toISOString(),
-        endTime: null,
-        details: `File: ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)`,
-      }
-
-      if (onJobCreated) onJobCreated(newJob)
-      onStatusChange(`Ingestion job started with ID: ${ingestData.job_id}`)
-
-      // Fetch schema
-      const schemaResponse = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL || "/api"}/datapuur/schema/${data.file_id}`,
-        {
+        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "/api"}/datapuur/upload`, {
+          method: "POST",
+          body: formData,
           headers: {
             Authorization: `Bearer ${localStorage.getItem("token")}`,
           },
-        },
-      )
+        })
 
-      if (!schemaResponse.ok) {
-        const errorData = await schemaResponse.json()
-        throw new Error(errorData.detail || "Failed to detect schema")
+        if (!response.ok) {
+          const errorData = await response.json()
+          throw new Error(errorData.detail || `Failed to upload file ${file.name}`)
+        }
+
+        const data = await response.json()
+        onStatusChange(`File ${i + 1} uploaded successfully! Processing data...`)
+
+        // Create a new ingestion job
+        const ingestResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "/api"}/datapuur/ingest-file`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${localStorage.getItem("token")}`,
+          },
+          body: JSON.stringify({
+            file_id: data.file_id,
+            file_name: file.name,
+            chunk_size: chunkSize,
+          }),
+        })
+
+        if (!ingestResponse.ok) {
+          const errorData = await ingestResponse.json()
+          throw new Error(errorData.detail || `Failed to start ingestion for ${file.name}`)
+        }
+
+        const ingestData = await ingestResponse.json()
+
+        // Create a new job object
+        const newJob = {
+          id: ingestData.job_id,
+          name: file.name,
+          type: "file",
+          status: "running",
+          progress: 0,
+          startTime: new Date().toISOString(),
+          endTime: null,
+          details: `File: ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)`,
+        }
+
+        if (onJobCreated) onJobCreated(newJob)
+        onStatusChange(`Ingestion job started for ${file.name} with ID: ${ingestData.job_id}`)
+
+        // Fetch schema for the first file only
+        if (i === 0) {
+          const schemaResponse = await fetch(
+            `${process.env.NEXT_PUBLIC_API_URL || "/api"}/datapuur/schema/${data.file_id}`,
+            {
+              headers: {
+                Authorization: `Bearer ${localStorage.getItem("token")}`,
+              },
+            },
+          )
+
+          if (!schemaResponse.ok) {
+            const errorData = await schemaResponse.json()
+            throw new Error(errorData.detail || "Failed to detect schema")
+          }
+
+          const schemaData = await schemaResponse.json()
+          onSchemaDetected(schemaData.schema)
+          onStatusChange("Schema detected successfully!")
+        }
+
+        // Update progress for this file
+        setUploadProgress((prev) => ({ ...prev, [i]: 100 }))
+      } catch (error) {
+        console.error(`Error uploading file ${file.name}:`, error)
+        setError(`Error with file ${file.name}: ${error.message || "Failed to upload file"}`)
+        if (onError) onError(error)
+        // Continue with next file despite error
       }
-
-      const schemaData = await schemaResponse.json()
-      onSchemaDetected(schemaData.schema)
-      onStatusChange("Schema detected successfully!")
-    } catch (error) {
-      console.error("Error uploading file:", error)
-      setError(error.message || "Failed to upload file")
-      onStatusChange("")
-      if (onError) onError(error)
-    } finally {
-      setIsProcessing(false)
     }
+
+    onStatusChange(`Completed processing ${files.length} file${files.length > 1 ? "s" : ""}`)
+    setIsProcessing(false)
   }
 
-  const removeFile = () => {
-    setFile(null)
-    setUploadProgress(0)
+  const removeAllFiles = () => {
+    setFiles([])
+    setUploadProgress({})
     setError("")
     onStatusChange("")
   }
@@ -184,7 +221,7 @@ export function FileUpload({
         </Alert>
       )}
 
-      {!file ? (
+      {files.length === 0 ? (
         <div
           className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
             dragActive ? "border-primary bg-primary/5" : "border-border bg-background/50"
@@ -194,7 +231,14 @@ export function FileUpload({
           onDragOver={handleDrag}
           onDrop={handleDrop}
         >
-          <input ref={fileInputRef} type="file" className="hidden" onChange={handleChange} accept=".csv,.json" />
+          <input
+            ref={fileInputRef}
+            type="file"
+            className="hidden"
+            onChange={handleChange}
+            accept=".csv,.json"
+            multiple
+          />
           <motion.div whileHover={{ scale: 1.05 }} className="inline-block">
             <FileUp className="w-16 h-16 text-primary mx-auto mb-4" />
           </motion.div>
@@ -214,30 +258,47 @@ export function FileUpload({
       ) : (
         <div className="border rounded-lg p-6 bg-card">
           <div className="flex justify-between items-center mb-4">
-            <div className="flex items-center">
-              <FileText className="h-8 w-8 text-primary mr-3" />
-              <div>
-                <p className="font-medium text-foreground">{file.name}</p>
-                <p className="text-sm text-muted-foreground">{(file.size / 1024 / 1024).toFixed(2)} MB</p>
-              </div>
-            </div>
+            <h3 className="text-lg font-medium text-foreground">Selected Files ({files.length})</h3>
             <Button
-              variant="ghost"
-              size="icon"
-              onClick={removeFile}
+              variant="outline"
+              size="sm"
+              onClick={() => setFiles([])}
               disabled={isProcessing}
               className="text-muted-foreground hover:text-foreground"
             >
-              <X className="h-5 w-5" />
+              Clear All
             </Button>
           </div>
 
-          {uploadProgress > 0 && (
-            <div className="mb-4">
-              <Progress value={uploadProgress} className="h-2" />
-              <p className="text-xs text-muted-foreground mt-1 text-right">{uploadProgress}% uploaded</p>
-            </div>
-          )}
+          <div className="space-y-3 max-h-60 overflow-y-auto mb-4">
+            {files.map((file, index) => (
+              <div key={index} className="flex justify-between items-center p-3 border border-border rounded-lg">
+                <div className="flex items-center">
+                  <FileText className="h-5 w-5 text-primary mr-3" />
+                  <div>
+                    <p className="font-medium text-foreground">{file.name}</p>
+                    <p className="text-sm text-muted-foreground">{(file.size / 1024 / 1024).toFixed(2)} MB</p>
+                  </div>
+                </div>
+
+                {uploadProgress[index] !== undefined && (
+                  <div className="w-24 mr-4">
+                    <Progress value={uploadProgress[index]} className="h-2" />
+                  </div>
+                )}
+
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => removeFile(index)}
+                  disabled={isProcessing}
+                  className="text-muted-foreground hover:text-foreground"
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+            ))}
+          </div>
 
           <Button
             className="w-full bg-primary hover:bg-primary/90 text-primary-foreground"
@@ -264,7 +325,7 @@ export function FileUpload({
             ) : (
               <span className="flex items-center">
                 <Upload className="mr-2 h-4 w-4" />
-                Upload File
+                Upload {files.length} File{files.length !== 1 ? "s" : ""}
               </span>
             )}
           </Button>

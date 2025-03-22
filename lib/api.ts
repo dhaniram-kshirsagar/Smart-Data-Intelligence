@@ -11,7 +11,7 @@ const getApiBaseUrl = () => {
   }
 
   // Default fallback
-  return "http://localhost:8080/api"
+  return "http://localhost:9595/api"
 }
 
 const API_BASE_URL = getApiBaseUrl()
@@ -137,6 +137,78 @@ export async function getActivities() {
 
 export async function getDashboardData() {
   return fetchAPI("/datapuur/dashboard")
+}
+
+// Add a function to handle multiple file uploads
+export async function uploadMultipleFiles(
+  files: File[],
+  chunkSize: number,
+  onProgress?: (fileIndex: number, progress: number) => void,
+) {
+  const results = []
+
+  for (let i = 0; i < files.length; i++) {
+    try {
+      const formData = new FormData()
+      formData.append("file", files[i])
+      formData.append("chunkSize", chunkSize.toString())
+
+      const response = await fetch(`${API_BASE_URL}/datapuur/upload`, {
+        method: "POST",
+        body: formData,
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem("token")}`,
+        },
+      })
+
+      if (!response.ok) {
+        throw new Error(`Failed to upload file ${files[i].name}`)
+      }
+
+      const data = await response.json()
+
+      // Create ingestion job
+      const ingestResponse = await fetch(`${API_BASE_URL}/datapuur/ingest-file`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${localStorage.getItem("token")}`,
+        },
+        body: JSON.stringify({
+          file_id: data.file_id,
+          file_name: files[i].name,
+          chunk_size: chunkSize,
+        }),
+      })
+
+      if (!ingestResponse.ok) {
+        throw new Error(`Failed to start ingestion for ${files[i].name}`)
+      }
+
+      const ingestData = await ingestResponse.json()
+
+      // Update progress
+      if (onProgress) {
+        onProgress(i, 100)
+      }
+
+      results.push({
+        file: files[i],
+        fileId: data.file_id,
+        jobId: ingestData.job_id,
+        success: true,
+      })
+    } catch (error) {
+      console.error(`Error processing file ${files[i].name}:`, error)
+      results.push({
+        file: files[i],
+        error: error.message,
+        success: false,
+      })
+    }
+  }
+
+  return results
 }
 
 // KGInsights API calls

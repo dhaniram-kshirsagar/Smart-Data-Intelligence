@@ -5,7 +5,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Progress } from "@/components/ui/progress"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { AlertCircle, CheckCircle, Clock, RefreshCw, XCircle, FileText, Database } from "lucide-react"
+import { AlertCircle, CheckCircle, Clock, RefreshCw, XCircle, FileText, Database, FolderOpen } from "lucide-react"
 import { formatDistanceToNow } from "date-fns"
 
 export function IngestionMonitor({ jobs, onJobUpdated, errors }) {
@@ -127,6 +127,43 @@ export function IngestionMonitor({ jobs, onJobUpdated, errors }) {
     }
   }
 
+  // Add a function to group jobs by batch or source
+  const groupJobs = (jobs) => {
+    // Group jobs by their creation time (within a 30-second window)
+    const groupedJobs = {}
+
+    jobs.forEach((job) => {
+      // Use the first part of the job name (before extension) as a potential group key
+      const baseName = job.name.split(".")[0]
+
+      // Find if there's an existing group with similar start time
+      let assigned = false
+      Object.keys(groupedJobs).forEach((groupKey) => {
+        const group = groupedJobs[groupKey]
+        // Check if this job was created within 30 seconds of the group's first job
+        if (group.length > 0) {
+          const firstJobTime = new Date(group[0].startTime).getTime()
+          const currentJobTime = new Date(job.startTime).getTime()
+          const timeDiff = Math.abs(currentJobTime - firstJobTime)
+
+          // If within 30 seconds and has similar name, add to this group
+          if (timeDiff < 30000 && (groupKey.includes(baseName) || baseName.includes(groupKey.split("-batch")[0]))) {
+            group.push(job)
+            assigned = true
+          }
+        }
+      })
+
+      // If not assigned to any group, create a new group
+      if (!assigned) {
+        const groupKey = `${baseName}-batch-${Date.now()}`
+        groupedJobs[groupKey] = [job]
+      }
+    })
+
+    return groupedJobs
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex justify-between items-center">
@@ -159,37 +196,53 @@ export function IngestionMonitor({ jobs, onJobUpdated, errors }) {
           {activeJobs.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">No active jobs</div>
           ) : (
-            activeJobs.map((job) => (
-              <div key={job.id} className="border border-border rounded-lg p-4 bg-card/50">
-                <div className="flex justify-between items-start mb-2">
-                  <div className="flex items-center">
-                    <div className="mr-2">{getJobIcon(job.type)}</div>
-                    <div>
-                      <h4 className="font-medium text-foreground">{job.name}</h4>
-                      <p className="text-xs text-muted-foreground">{job.details}</p>
+            <>
+              {/* Group jobs that were likely uploaded together */}
+              {Object.entries(groupJobs(activeJobs)).map(([groupKey, groupedJobs]) => (
+                <div key={groupKey} className="mb-6">
+                  {groupedJobs.length > 1 && (
+                    <div className="flex items-center mb-2 text-sm text-muted-foreground">
+                      <FolderOpen className="h-4 w-4 mr-1" />
+                      <span>Batch upload ({groupedJobs.length} files)</span>
                     </div>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    {getStatusBadge(job.status)}
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => cancelJob(job.id)}
-                      className="h-7 px-2 text-destructive hover:bg-destructive/10"
-                    >
-                      Cancel
-                    </Button>
+                  )}
+
+                  <div className="space-y-3">
+                    {groupedJobs.map((job) => (
+                      <div key={job.id} className="border border-border rounded-lg p-4 bg-card/50">
+                        <div className="flex justify-between items-start mb-2">
+                          <div className="flex items-center">
+                            <div className="mr-2">{getJobIcon(job.type)}</div>
+                            <div>
+                              <h4 className="font-medium text-foreground">{job.name}</h4>
+                              <p className="text-xs text-muted-foreground">{job.details}</p>
+                            </div>
+                          </div>
+                          <div className="flex items-center space-x-2">
+                            {getStatusBadge(job.status)}
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => cancelJob(job.id)}
+                              className="h-7 px-2 text-destructive hover:bg-destructive/10"
+                            >
+                              Cancel
+                            </Button>
+                          </div>
+                        </div>
+                        <div className="space-y-2">
+                          <div className="flex justify-between text-xs text-muted-foreground">
+                            <span>Progress: {job.progress}%</span>
+                            <span>Started {formatTime(job.startTime)}</span>
+                          </div>
+                          <Progress value={job.progress} className="h-2" />
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
-                <div className="space-y-2">
-                  <div className="flex justify-between text-xs text-muted-foreground">
-                    <span>Progress: {job.progress}%</span>
-                    <span>Started {formatTime(job.startTime)}</span>
-                  </div>
-                  <Progress value={job.progress} className="h-2" />
-                </div>
-              </div>
-            ))
+              ))}
+            </>
           )}
         </TabsContent>
 
