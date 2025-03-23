@@ -12,7 +12,7 @@ import tempfile
 import shutil
 from pathlib import Path
 import sqlalchemy
-from sqlalchemy import create_engine, MetaData, Table, inspect
+from sqlalchemy import create_engine, MetaData, Table, inspect, desc, func
 import requests
 import asyncio
 import threading
@@ -20,6 +20,7 @@ import time
 import logging
 import pandas as pd
 from pydantic import BaseModel, Field
+import numpy as np
 
 from .models import User, get_db, ActivityLog, Role
 from .auth import get_current_active_user, has_role, log_activity
@@ -70,6 +71,46 @@ class JobStatus(BaseModel):
     error: Optional[str] = None
     duration: Optional[str] = None
     config: Optional[Dict[str, Any]] = None
+
+# New models for ingestion history
+class IngestionHistoryItem(BaseModel):
+    id: str
+    filename: str
+    type: str
+    size: int
+    uploaded_at: str
+    uploaded_by: str
+    preview_url: Optional[str] = None
+    download_url: Optional[str] = None
+    status: str
+    source_type: str
+    database_info: Optional[Dict[str, str]] = None
+
+class IngestionHistoryResponse(BaseModel):
+    items: List[IngestionHistoryItem]
+    total: int
+    page: int
+    limit: int
+
+class SchemaResponse(BaseModel):
+    fields: List[Dict[str, Any]]
+    sample_values: Optional[List[Any]] = None
+
+class PreviewResponse(BaseModel):
+    data: Any
+    headers: Optional[List[str]] = None
+    filename: str
+    type: str
+
+class StatisticsResponse(BaseModel):
+    row_count: int
+    column_count: int
+    null_percentage: float
+    memory_usage: str
+    processing_time: str
+    data_density: Optional[float] = None
+    completion_rate: Optional[float] = None
+    error_rate: Optional[float] = None
 
 # Helper functions
 def detect_csv_schema(file_path, chunk_size=1000):
@@ -875,6 +916,497 @@ async def cancel_job(
     
     return job
 
+# New endpoints for the history tab
+@router.get("/ingestion-history", response_model=IngestionHistoryResponse)
+async def get_ingestion_history(
+    page: int = Query(1, ge=1),
+    limit: int = Query(10, ge=1, le=100),
+    sort: str = Query("newest"),
+    type: str = Query(""),
+    source: str = Query(""),
+    status: str = Query(""),
+    search: str = Query(""),
+    current_user: User = Depends(has_role("researcher"))
+):
+    """Get history of ingestion jobs with filtering and pagination"""
+    try:
+        # Convert ingestion jobs to list
+        jobs_list = []
+        
+        for job_id, job in ingestion_jobs.items():
+            # Skip jobs that don't match filters
+            if type and job["type"] != type:
+                continue
+                
+            if source:
+                source_type = "database" if job["type"] == "database" else "file"
+                if source_type != source:
+                    continue
+            
+            if status and job.get("status") != status:
+                continue
+                
+            if search:
+                search_lower = search.lower()
+                if search_lower not in job["name"].lower() and search_lower not in job.get("details", "").lower():
+                    continue
+            
+            # Get file info if it's a file ingestion
+            file_info = None
+            if job["type"] == "file" and "config" in job and "file_id" in job["config"]:
+                file_id = job["config"]["file_id"]
+                file_info = uploaded_files.get(file_id)
+            
+            # Create history item
+            history_item = {
+                "id": job_id,
+                "filename": job["name"],
+                "type": "database" if job["type"] == "database" else file_info["type"] if file_info else "unknown",
+                "size": os.path.getsize(file_info["path"]) if file_info and os.path.exists(file_info["path"]) else 0,
+                "uploaded_at": job["start_time"],
+                "uploaded_by": current_user.username,
+                "preview_url": f"/api/datapuur/ingestion-preview/{job_id}",
+                "download_url": f"/api/datapuur/ingestion-download/{job_id}",
+                "status": job["status"] if job["status"] != "queued" else "processing",
+                "source_type": "database" if job["type"] == "database" else "file",
+            }
+            
+            # Add database info if it's a database ingestion
+            if job["type"] == "database" and "config" in job:
+                history_item["database_info"] = {
+                    "type": job["config"].get("type", "unknown"),
+                    "name": job["config"].get("database", "unknown"),
+                    "table": job["config"].get("table", "unknown")
+                }
+            
+            jobs_list.append(history_item)
+        
+        # Sort the list
+        if sort == "newest":
+            jobs_list.sort(key=lambda x: x["uploaded_at"], reverse=True)
+        else:
+            jobs_list.sort(key=lambda x: x["uploaded_at"])
+        
+        # Calculate total and apply pagination
+        total = len(jobs_list)
+        offset = (page - 1) * limit
+        paginated_list = jobs_list[offset:offset + limit]
+        
+        # Log activity
+        log_activity(
+            db=next(get_db()),
+            username=current_user.username,
+            action="View ingestion history",
+            details=f"Viewed ingestion history (page {page})"
+        )
+        
+        return {
+            "items": paginated_list,
+            "total": total,
+            "page": page,
+            "limit": limit
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error fetching ingestion history: {str(e)}"
+        )
+
+@router.get("/ingestion-preview/{ingestion_id}", response_model=PreviewResponse)
+async def get_ingestion_preview(
+    ingestion_id: str,
+    current_user: User = Depends(has_role("researcher"))
+):
+    """Get preview data for an ingestion"""
+    if ingestion_id not in ingestion_jobs:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Ingestion not found"
+        )
+    
+    job = ingestion_jobs[ingestion_id]
+    
+    # Check if job is completed
+    if job["status"] != "completed":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot preview ingestion with status: {job['status']}"
+        )
+    
+    try:
+        # Get the parquet file path
+        parquet_path = DATA_DIR / f"{ingestion_id}.parquet"
+        
+        if not os.path.exists(parquet_path):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Ingestion data file not found"
+            )
+        
+        # Read the parquet file
+        df = pd.read_parquet(parquet_path)
+        
+        # Limit to first 10 rows for preview
+        preview_df = df.head(10)
+        
+        # Convert to appropriate format based on job type
+        if job["type"] == "file":
+            file_id = job["config"].get("file_id")
+            file_info = uploaded_files.get(file_id, {})
+            file_type = file_info.get("type", "unknown")
+            
+            if file_type == "csv":
+                # For CSV, return as list of lists with headers
+                headers = preview_df.columns.tolist()
+                # Convert NumPy types to Python native types
+                rows = []
+                for row in preview_df.values:
+                    python_row = []
+                    for value in row:
+                        if isinstance(value, (np.integer, np.floating, np.bool_)):
+                            python_row.append(value.item())
+                        elif pd.isna(value):
+                            python_row.append(None)
+                        else:
+                            python_row.append(value)
+                    rows.append(python_row)
+                
+                return {
+                    "data": rows,
+                    "headers": headers,
+                    "filename": job["name"],
+                    "type": "csv"
+                }
+            else:
+                # For JSON, return as list of objects
+                # Convert DataFrame to dict and handle NumPy types
+                records = []
+                for record in preview_df.to_dict(orient="records"):
+                    python_record = {}
+                    for key, value in record.items():
+                        if isinstance(value, (np.integer, np.floating, np.bool_)):
+                            python_record[key] = value.item()
+                        elif pd.isna(value):
+                            python_record[key] = None
+                        else:
+                            python_record[key] = value
+                    records.append(python_record)
+                
+                return {
+                    "data": records,
+                    "filename": job["name"],
+                    "type": "json"
+                }
+        else:
+            # For database, return as list of objects
+            records = preview_df.to_dict(orient="records")
+            
+            return {
+                "data": records,
+                "filename": job["name"],
+                "type": "database"
+            }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error generating preview: {str(e)}"
+        )
+
+@router.get("/ingestion-schema/{ingestion_id}", response_model=SchemaResponse)
+async def get_ingestion_schema(
+    ingestion_id: str,
+    current_user: User = Depends(has_role("researcher"))
+):
+    """Get schema for an ingestion"""
+    if ingestion_id not in ingestion_jobs:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Ingestion not found"
+        )
+    
+    job = ingestion_jobs[ingestion_id]
+    
+    # Check if job is completed
+    if job["status"] != "completed":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot get schema for ingestion with status: {job['status']}"
+        )
+    
+    try:
+        # Get the parquet file path
+        parquet_path = DATA_DIR / f"{ingestion_id}.parquet"
+        
+        if not os.path.exists(parquet_path):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Ingestion data file not found"
+            )
+        
+        # Read the parquet file metadata
+        df = pd.read_parquet(parquet_path)
+        
+        # Generate schema
+        fields = []
+        sample_values = []
+        
+        for column in df.columns:
+            dtype = df[column].dtype
+            
+            # Determine field type
+            if pd.api.types.is_integer_dtype(dtype):
+                field_type = "integer"
+            elif pd.api.types.is_float_dtype(dtype):
+                field_type = "float"
+            elif pd.api.types.is_bool_dtype(dtype):
+                field_type = "boolean"
+            elif pd.api.types.is_datetime64_dtype(dtype):
+                field_type = "datetime"
+            else:
+                field_type = "string"
+            
+            # Check nullability
+            nullable = df[column].isna().any()
+            
+            # Get sample value
+            sample = None
+            non_null_values = df[column].dropna()
+            if not non_null_values.empty:
+                sample = non_null_values.iloc[0]
+                # Convert NumPy types to Python native types
+                if pd.api.types.is_datetime64_dtype(dtype):
+                    sample = str(sample)
+                elif isinstance(sample, (np.integer, np.floating, np.bool_)):
+                    sample = sample.item()  # Convert NumPy scalar to Python native type
+            
+            fields.append({
+                "name": column,
+                "type": field_type,
+                "nullable": nullable
+            })
+            
+            sample_values.append(sample)
+        
+        # Log the schema data being returned
+        logger.info(f"Schema data for ingestion {ingestion_id}: {len(fields)} fields")
+        
+        # Return schema data
+        return {
+            "fields": fields,
+            "sample_values": sample_values
+        }
+    except Exception as e:
+        logger.error(f"Error generating schema: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error generating schema: {str(e)}"
+        )
+
+@router.get("/debug-schema/{ingestion_id}")
+async def debug_schema(
+    ingestion_id: str,
+    current_user: User = Depends(has_role("researcher"))
+):
+    """Debug endpoint to check schema data directly"""
+    try:
+        # Get the parquet file path
+        parquet_path = DATA_DIR / f"{ingestion_id}.parquet"
+        
+        if not os.path.exists(parquet_path):
+            return {"error": "Ingestion data file not found"}
+        
+        # Read the parquet file metadata
+        df = pd.read_parquet(parquet_path)
+        
+        # Get column info
+        columns_info = []
+        for column in df.columns:
+            dtype = df[column].dtype
+            sample = None
+            non_null_values = df[column].dropna()
+            if not non_null_values.empty:
+                sample_value = non_null_values.iloc[0]
+                if isinstance(sample_value, (np.integer, np.floating, np.bool_)):
+                    sample = sample_value.item()
+                elif pd.api.types.is_datetime64_dtype(dtype):
+                    sample = str(sample_value)
+                else:
+                    sample = sample_value
+                    
+            columns_info.append({
+                "name": column,
+                "dtype": str(dtype),
+                "nullable": df[column].isna().any(),
+                "sample": sample,
+                "sample_type": type(sample).__name__
+            })
+        
+        return {
+            "columns_count": len(df.columns),
+            "rows_count": len(df),
+            "columns": columns_info
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+@router.get("/ingestion-statistics/{ingestion_id}", response_model=StatisticsResponse)
+async def get_ingestion_statistics(
+    ingestion_id: str,
+    current_user: User = Depends(has_role("researcher"))
+):
+    """Get statistics for an ingestion"""
+    if ingestion_id not in ingestion_jobs:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Ingestion not found"
+        )
+    
+    job = ingestion_jobs[ingestion_id]
+    
+    # Check if job is completed
+    if job["status"] != "completed":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot get statistics for ingestion with status: {job['status']}"
+        )
+    
+    try:
+        # Get the parquet file path
+        parquet_path = DATA_DIR / f"{ingestion_id}.parquet"
+        
+        if not os.path.exists(parquet_path):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Ingestion data file not found"
+            )
+        
+        # Read the parquet file
+        df = pd.read_parquet(parquet_path)
+        
+        # Calculate statistics
+        row_count = len(df)
+        column_count = len(df.columns)
+        
+        # Calculate null percentage
+        total_cells = row_count * column_count
+        null_count = df.isna().sum().sum()
+        null_percentage = (null_count / total_cells) * 100 if total_cells > 0 else 0
+        
+        # Calculate memory usage
+        memory_usage_bytes = df.memory_usage(deep=True).sum()
+        if memory_usage_bytes < 1024:
+            memory_usage = f"{memory_usage_bytes} B"
+        elif memory_usage_bytes < 1024 * 1024:
+            memory_usage = f"{memory_usage_bytes / 1024:.1f} KB"
+        else:
+            memory_usage = f"{memory_usage_bytes / (1024 * 1024):.1f} MB"
+        
+        # Get processing time from job
+        processing_time = "Unknown"
+        if job.get("duration"):
+            duration_parts = job["duration"].split(":")
+            if len(duration_parts) >= 3:
+                hours = int(duration_parts[0])
+                minutes = int(duration_parts[1])
+                seconds = float(duration_parts[2])
+                
+                if hours > 0:
+                    processing_time = f"{hours}h {minutes}m {seconds:.1f}s"
+                elif minutes > 0:
+                    processing_time = f"{minutes}m {seconds:.1f}s"
+                else:
+                    processing_time = f"{seconds:.1f}s"
+        
+        # Calculate data density (rows per KB)
+        data_density = (row_count / (memory_usage_bytes / 1024)) if memory_usage_bytes > 0 else 0
+        
+        return {
+            "row_count": row_count,
+            "column_count": column_count,
+            "null_percentage": null_percentage,
+            "memory_usage": memory_usage,
+            "processing_time": processing_time,
+            "data_density": data_density,
+            "completion_rate": 100 - null_percentage,
+            "error_rate": 0  # Placeholder, could be calculated from data quality checks
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error generating statistics: {str(e)}"
+        )
+
+@router.get("/ingestion-download/{ingestion_id}")
+async def download_ingestion(
+    ingestion_id: str,
+    format: str = Query("csv", regex="^(csv|json|parquet)$"),
+    current_user: User = Depends(has_role("researcher"))
+):
+    """Download ingestion data in specified format"""
+    if ingestion_id not in ingestion_jobs:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Ingestion not found"
+        )
+    
+    job = ingestion_jobs[ingestion_id]
+    
+    # Check if job is completed
+    if job["status"] != "completed":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot download ingestion with status: {job['status']}"
+        )
+    
+    try:
+        # Get the parquet file path
+        parquet_path = DATA_DIR / f"{ingestion_id}.parquet"
+        
+        if not os.path.exists(parquet_path):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Ingestion data file not found"
+            )
+        
+        # Read the parquet file
+        df = pd.read_parquet(parquet_path)
+        
+        # Create a temporary file for the download
+        with tempfile.NamedTemporaryFile(delete=False, suffix=f".{format}") as temp_file:
+            temp_path = temp_file.name
+            
+            # Convert to requested format
+            if format == "csv":
+                df.to_csv(temp_path, index=False)
+                media_type = "text/csv"
+            elif format == "json":
+                df.to_json(temp_path, orient="records", lines=False)
+                media_type = "application/json"
+            else:  # parquet
+                df.to_parquet(temp_path, index=False)
+                media_type = "application/octet-stream"
+        
+        # Log activity
+        log_activity(
+            db=next(get_db()),
+            username=current_user.username,
+            action="Ingestion download",
+            details=f"Downloaded ingestion data: {job['name']} ({format})"
+        )
+        
+        # Return the file
+        return FileResponse(
+            path=temp_path,
+            filename=f"{job['name']}.{format}",
+            media_type=media_type,
+            background=BackgroundTasks().add_task(lambda: os.unlink(temp_path))
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error downloading ingestion: {str(e)}"
+        )
+
 # Original routes from the template
 @router.get("/sources", response_model=List[DataSource])
 async def get_data_sources(current_user: User = Depends(has_role("researcher"))):
@@ -1058,8 +1590,6 @@ async def get_dashboard_data(current_user: User = Depends(has_role("researcher")
         )[:4]],
         "chart_data": chart_data
     }
-
-# Add this new endpoint to the existing datapuur.py file
 
 @router.get("/file-history", status_code=status.HTTP_200_OK)
 async def get_file_history(
