@@ -1063,10 +1063,16 @@ async def get_ingestion_preview(
                 for row in preview_df.values:
                     python_row = []
                     for value in row:
-                        if isinstance(value, (np.integer, np.floating, np.bool_)):
+                        if isinstance(value, (np.integer, np.floating)):
                             python_row.append(value.item())
+                        elif isinstance(value, np.bool_):
+                            python_row.append(bool(value))
                         elif pd.isna(value):
                             python_row.append(None)
+                        elif isinstance(value, np.ndarray):
+                            python_row.append(value.tolist())
+                        elif isinstance(value, pd.Timestamp):
+                            python_row.append(str(value))
                         else:
                             python_row.append(value)
                     rows.append(python_row)
@@ -1084,10 +1090,16 @@ async def get_ingestion_preview(
                 for record in preview_df.to_dict(orient="records"):
                     python_record = {}
                     for key, value in record.items():
-                        if isinstance(value, (np.integer, np.floating, np.bool_)):
+                        if isinstance(value, (np.integer, np.floating)):
                             python_record[key] = value.item()
+                        elif isinstance(value, np.bool_):
+                            python_record[key] = bool(value)
                         elif pd.isna(value):
                             python_record[key] = None
+                        elif isinstance(value, np.ndarray):
+                            python_record[key] = value.tolist()
+                        elif isinstance(value, pd.Timestamp):
+                            python_record[key] = str(value)
                         else:
                             python_record[key] = value
                     records.append(python_record)
@@ -1099,7 +1111,24 @@ async def get_ingestion_preview(
                 }
         else:
             # For database, return as list of objects
-            records = preview_df.to_dict(orient="records")
+            # Convert DataFrame to dict and handle NumPy types
+            records = []
+            for record in preview_df.to_dict(orient="records"):
+                python_record = {}
+                for key, value in record.items():
+                    if isinstance(value, (np.integer, np.floating)):
+                        python_record[key] = value.item()
+                    elif isinstance(value, np.bool_):
+                        python_record[key] = bool(value)
+                    elif pd.isna(value):
+                        python_record[key] = None
+                    elif isinstance(value, np.ndarray):
+                        python_record[key] = value.tolist()
+                    elif isinstance(value, pd.Timestamp):
+                        python_record[key] = str(value)
+                    else:
+                        python_record[key] = value
+                records.append(python_record)
             
             return {
                 "data": records,
@@ -1165,19 +1194,26 @@ async def get_ingestion_schema(
             else:
                 field_type = "string"
             
-            # Check nullability
-            nullable = df[column].isna().any()
+            # Check nullability - convert numpy.bool_ to Python bool
+            nullable = bool(df[column].isna().any())
             
             # Get sample value
             sample = None
             non_null_values = df[column].dropna()
             if not non_null_values.empty:
-                sample = non_null_values.iloc[0]
+                sample_value = non_null_values.iloc[0]
+                
                 # Convert NumPy types to Python native types
-                if pd.api.types.is_datetime64_dtype(dtype):
-                    sample = str(sample)
-                elif isinstance(sample, (np.integer, np.floating, np.bool_)):
-                    sample = sample.item()  # Convert NumPy scalar to Python native type
+                if isinstance(sample_value, (np.integer, np.floating)):
+                    sample = sample_value.item()  # Convert NumPy scalar to Python native type
+                elif isinstance(sample_value, np.bool_):
+                    sample = bool(sample_value)  # Convert NumPy boolean to Python boolean
+                elif pd.api.types.is_datetime64_dtype(dtype):
+                    sample = str(sample_value)
+                elif isinstance(sample_value, np.ndarray):
+                    sample = sample_value.tolist()  # Convert NumPy array to list
+                else:
+                    sample = sample_value
             
             fields.append({
                 "name": column,
@@ -1190,10 +1226,28 @@ async def get_ingestion_schema(
         # Log the schema data being returned
         logger.info(f"Schema data for ingestion {ingestion_id}: {len(fields)} fields")
         
-        # Return schema data
+        # Return schema data - ensure all NumPy types are converted to Python native types
+        def convert_numpy_types(obj):
+            if isinstance(obj, np.bool_):
+                return bool(obj)
+            elif isinstance(obj, (np.integer, np.floating)):
+                return obj.item()
+            elif isinstance(obj, np.ndarray):
+                return obj.tolist()
+            elif isinstance(obj, dict):
+                return {k: convert_numpy_types(v) for k, v in obj.items()}
+            elif isinstance(obj, list):
+                return [convert_numpy_types(i) for i in obj]
+            else:
+                return obj
+                
+        # Apply conversion to both fields and sample_values
+        converted_fields = convert_numpy_types(fields)
+        converted_sample_values = convert_numpy_types(sample_values)
+        
         return {
-            "fields": fields,
-            "sample_values": sample_values
+            "fields": converted_fields,
+            "sample_values": converted_sample_values
         }
     except Exception as e:
         logger.error(f"Error generating schema: {str(e)}")
@@ -1226,9 +1280,17 @@ async def debug_schema(
             non_null_values = df[column].dropna()
             if not non_null_values.empty:
                 sample_value = non_null_values.iloc[0]
-                if isinstance(sample_value, (np.integer, np.floating, np.bool_)):
+                
+                # Convert NumPy types to Python native types
+                if isinstance(sample_value, (np.integer, np.floating)):
                     sample = sample_value.item()
+                elif isinstance(sample_value, np.bool_):
+                    sample = bool(sample_value)
                 elif pd.api.types.is_datetime64_dtype(dtype):
+                    sample = str(sample_value)
+                elif isinstance(sample_value, np.ndarray):
+                    sample = sample_value.tolist()
+                elif isinstance(sample_value, pd.Timestamp):
                     sample = str(sample_value)
                 else:
                     sample = sample_value
@@ -1292,8 +1354,15 @@ async def get_ingestion_statistics(
         null_count = df.isna().sum().sum()
         null_percentage = (null_count / total_cells) * 100 if total_cells > 0 else 0
         
+        # Convert null_percentage from NumPy type to Python native type if needed
+        if isinstance(null_percentage, (np.integer, np.floating)):
+            null_percentage = null_percentage.item()
+        
         # Calculate memory usage
         memory_usage_bytes = df.memory_usage(deep=True).sum()
+        if isinstance(memory_usage_bytes, (np.integer, np.floating)):
+            memory_usage_bytes = memory_usage_bytes.item()
+            
         if memory_usage_bytes < 1024:
             memory_usage = f"{memory_usage_bytes} B"
         elif memory_usage_bytes < 1024 * 1024:
@@ -1304,21 +1373,31 @@ async def get_ingestion_statistics(
         # Get processing time from job
         processing_time = "Unknown"
         if job.get("duration"):
-            duration_parts = job["duration"].split(":")
-            if len(duration_parts) >= 3:
-                hours = int(duration_parts[0])
-                minutes = int(duration_parts[1])
-                seconds = float(duration_parts[2])
-                
-                if hours > 0:
-                    processing_time = f"{hours}h {minutes}m {seconds:.1f}s"
-                elif minutes > 0:
-                    processing_time = f"{minutes}m {seconds:.1f}s"
-                else:
-                    processing_time = f"{seconds:.1f}s"
+            try:
+                # Parse duration string like "0:00:05.123456"
+                duration_parts = job["duration"].split(":")
+                if len(duration_parts) >= 3:
+                    hours = int(duration_parts[0])
+                    minutes = int(duration_parts[1])
+                    seconds = float(duration_parts[2])
+                    
+                    if hours > 0:
+                        processing_time = f"{hours}h {minutes}m {seconds:.1f}s"
+                    elif minutes > 0:
+                        processing_time = f"{minutes}m {seconds:.1f}s"
+                    else:
+                        processing_time = f"{seconds:.1f}s"
+            except:
+                pass
         
         # Calculate data density (rows per KB)
         data_density = (row_count / (memory_usage_bytes / 1024)) if memory_usage_bytes > 0 else 0
+        if isinstance(data_density, (np.integer, np.floating)):
+            data_density = data_density.item()
+            
+        completion_rate = 100 - null_percentage
+        if isinstance(completion_rate, (np.integer, np.floating)):
+            completion_rate = completion_rate.item()
         
         return {
             "row_count": row_count,
@@ -1327,7 +1406,7 @@ async def get_ingestion_statistics(
             "memory_usage": memory_usage,
             "processing_time": processing_time,
             "data_density": data_density,
-            "completion_rate": 100 - null_percentage,
+            "completion_rate": completion_rate,
             "error_rate": 0  # Placeholder, could be calculated from data quality checks
         }
     except Exception as e:
@@ -1781,4 +1860,3 @@ async def download_file(
 
 # Create data directory if it doesn't exist
 DATA_DIR.mkdir(exist_ok=True)
-
