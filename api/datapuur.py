@@ -504,39 +504,61 @@ def process_file_ingestion_with_db(job_id, file_id, chunk_size, db):
         
         # Process file based on type
         if file_type == "csv":
-            # Read CSV in chunks
-            chunk_iterator = pd.read_csv(file_path, chunksize=chunk_size)
-            total_rows = sum(1 for _ in open(file_path, 'r')) - 1  # Subtract header row
-            processed_rows = 0
-            
-            # Process first chunk
-            first_chunk = next(chunk_iterator)
-            first_chunk.to_parquet(output_file, index=False)
-            processed_rows += len(first_chunk)
-            
-            # Update progress
-            job.progress = min(int((processed_rows / total_rows) * 100), 99)
-            db_session.commit()
-            
-            # Process remaining chunks
-            for chunk in chunk_iterator:
-                # Read existing parquet file
-                if os.path.exists(output_file):
-                    existing_df = pd.read_parquet(output_file)
-                    # Concatenate with new chunk
-                    combined_df = pd.concat([existing_df, chunk], ignore_index=True)
-                    # Write back to file
-                    combined_df.to_parquet(output_file, index=False)
-                else:
-                    chunk.to_parquet(output_file, index=False)
-                    
-                processed_rows += len(chunk)
+            try:
+                # Read CSV in chunks with all columns as string type initially
+                chunk_iterator = pd.read_csv(
+                    file_path, 
+                    chunksize=chunk_size,
+                    dtype=str,  # Read all columns as strings initially
+                    keep_default_na=False  # Don't convert empty strings to NaN
+                )
+                
+                total_rows = sum(1 for _ in open(file_path, 'r')) - 1  # Subtract header row
+                processed_rows = 0
+                
+                # Process first chunk
+                first_chunk = next(chunk_iterator)
+                
+                # Try to convert numeric columns safely
+                for col in first_chunk.columns:
+                    # Try to convert to numeric, but keep as string if it fails
+                    if col in ['MonthlyCharges', 'TotalCharges']:
+                        first_chunk[col] = pd.to_numeric(first_chunk[col], errors='coerce')
+                
+                first_chunk.to_parquet(output_file, index=False)
+                processed_rows += len(first_chunk)
                 
                 # Update progress
                 job.progress = min(int((processed_rows / total_rows) * 100), 99)
                 db_session.commit()
                 
-                time.sleep(0.1)  # Simulate processing time
+                # Process remaining chunks
+                for chunk in chunk_iterator:
+                    # Try to convert numeric columns safely
+                    for col in chunk.columns:
+                        if col in ['MonthlyCharges', 'TotalCharges']:
+                            chunk[col] = pd.to_numeric(chunk[col], errors='coerce')
+                    
+                    # Read existing parquet file
+                    if os.path.exists(output_file):
+                        existing_df = pd.read_parquet(output_file)
+                        # Concatenate with new chunk
+                        combined_df = pd.concat([existing_df, chunk], ignore_index=True)
+                        # Write back to file
+                        combined_df.to_parquet(output_file, index=False)
+                    else:
+                        chunk.to_parquet(output_file, index=False)
+                        
+                    processed_rows += len(chunk)
+                    
+                    # Update progress
+                    job.progress = min(int((processed_rows / total_rows) * 100), 99)
+                    db_session.commit()
+                    
+                    time.sleep(0.1)  # Simulate processing time
+            except Exception as e:
+                logger.error(f"Error processing CSV file: {str(e)}")
+                raise ValueError(f"Error processing CSV file: {str(e)}")
         
         elif file_type == "json":
             # Read JSON
