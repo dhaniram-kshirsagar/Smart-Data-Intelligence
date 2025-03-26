@@ -13,6 +13,10 @@ import {
   ChevronDown,
   Table,
   BarChart,
+  ChevronLeft,
+  ChevronRight,
+  ArrowLeft,
+  ArrowRight,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -61,7 +65,7 @@ export function HistoryTab() {
   const [error, setError] = useState<string | null>(null)
   const [page, setPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
-  const itemsPerPage = 10
+  const [itemsPerPage] = useState(10)
 
   // Track expanded items
   const [expandedItems, setExpandedItems] = useState<Record<string, boolean>>({})
@@ -74,6 +78,10 @@ export function HistoryTab() {
     Record<string, { preview: boolean; schema: boolean; stats: boolean }>
   >({})
 
+  // Add state for table pagination
+  const [previewPage, setPreviewPage] = useState<Record<string, number>>({})
+  const [previewPageSize, setPreviewPageSize] = useState(10)
+
   // Update the fetchFileHistory function to use the SQLite database
   const fetchFileHistory = async () => {
     setIsLoading(true)
@@ -81,7 +89,7 @@ export function HistoryTab() {
 
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || "/api"
-      // Update the endpoint to fetch from the SQLite database
+      // Use the updated endpoint that fetches from the SQLite database
       const response = await fetch(
         `${apiUrl}/datapuur/ingestion-history?page=${page}&limit=${itemsPerPage}&sort=${sortOrder}&type=${fileTypeFilter !== "all" ? fileTypeFilter : ""}&source=${sourceTypeFilter !== "all" ? sourceTypeFilter : ""}&status=${statusFilter !== "all" ? statusFilter : ""}&search=${encodeURIComponent(searchQuery)}`,
         {
@@ -237,30 +245,36 @@ export function HistoryTab() {
       },
       {
         id: "3",
-        filename: "sales_report_q1.csv",
+        filename: "FoamFactory_V2_27K - Copy.csv",
         type: "csv",
-        size: 1024 * 1024 * 3.7, // 3.7 MB
-        uploaded_at: new Date(Date.now() - 1000 * 60 * 60 * 24 * 10).toISOString(), // 10 days ago
+        size: 1024 * 1024 * 18.6, // 18.6 MB
+        uploaded_at: new Date(Date.now() - 1000 * 60 * 7).toISOString(), // 7 minutes ago
         uploaded_by: "admin",
         preview_url: "/api/datapuur/preview/3",
         download_url: "/api/datapuur/download/3",
-        status: "archived",
+        status: "available",
         source_type: "file",
         schema: {
           fields: [
-            { name: "transaction_id", type: "string", nullable: false },
-            { name: "date", type: "date", nullable: false },
-            { name: "product_id", type: "string", nullable: false },
-            { name: "quantity", type: "integer", nullable: false },
-            { name: "price", type: "number", nullable: false },
-            { name: "customer_id", type: "string", nullable: true },
+            { name: "Factory", type: "string", nullable: false },
+            { name: "Date", type: "date", nullable: false },
+            { name: "Location", type: "string", nullable: false },
+            { name: "Machine Type", type: "string", nullable: false },
+            { name: "Machine Utilization (%)", type: "number", nullable: false },
+            { name: "Machine Downtime (hours)", type: "number", nullable: false },
+            { name: "Maintenance History", type: "string", nullable: true },
+            { name: "Machine Age (years)", type: "number", nullable: false },
+            { name: "Batch", type: "string", nullable: false },
+            { name: "Batch Quality (Pass %)", type: "number", nullable: false },
+            { name: "Cycle Time (minutes)", type: "number", nullable: false },
+            { name: "Energy Consumption (kWh)", type: "number", nullable: false },
           ],
         },
         statistics: {
-          row_count: 8750,
-          column_count: 6,
+          row_count: 27000,
+          column_count: 12,
           null_percentage: 5.2,
-          memory_usage: "2.8 MB",
+          memory_usage: "18.6 MB",
           processing_time: "4.7s",
         },
       },
@@ -396,6 +410,253 @@ export function HistoryTab() {
     ]
   }
 
+  // Generate mock preview data for the FoamFactory file
+  const generateMockPreviewData = (fileId: string) => {
+    if (fileId === "3") {
+      // Mock data for FoamFactory CSV
+      return {
+        headers: [
+          "Factory",
+          "Date",
+          "Location",
+          "Machine Type",
+          "Machine Utilization (%)",
+          "Machine Downtime (hours)",
+          "Maintenance History",
+          "Machine Age (years)",
+          "Batch",
+          "Batch Quality (Pass %)",
+          "Cycle Time (minutes)",
+          "Energy Consumption (kWh)",
+        ],
+        data: [
+          [
+            "Factory A",
+            "2023-01-15",
+            "North Wing",
+            "Extruder",
+            "87.5",
+            "2.3",
+            "Regular",
+            "4.5",
+            "B12345",
+            "98.7",
+            "45",
+            "320",
+          ],
+          [
+            "Factory A",
+            "2023-01-16",
+            "North Wing",
+            "Extruder",
+            "92.1",
+            "1.5",
+            "Regular",
+            "4.5",
+            "B12346",
+            "99.2",
+            "43",
+            "315",
+          ],
+          [
+            "Factory B",
+            "2023-01-15",
+            "South Wing",
+            "Mixer",
+            "78.3",
+            "4.2",
+            "Overhaul",
+            "6.2",
+            "B22345",
+            "95.8",
+            "52",
+            "410",
+          ],
+          [
+            "Factory B",
+            "2023-01-16",
+            "South Wing",
+            "Mixer",
+            "81.5",
+            "3.7",
+            "Regular",
+            "6.2",
+            "B22346",
+            "96.3",
+            "50",
+            "395",
+          ],
+          [
+            "Factory C",
+            "2023-01-15",
+            "East Wing",
+            "Cutter",
+            "94.7",
+            "1.1",
+            "Minimal",
+            "2.3",
+            "B32345",
+            "99.5",
+            "38",
+            "280",
+          ],
+          [
+            "Factory C",
+            "2023-01-16",
+            "East Wing",
+            "Cutter",
+            "95.2",
+            "0.9",
+            "Minimal",
+            "2.3",
+            "B32346",
+            "99.7",
+            "37",
+            "275",
+          ],
+          [
+            "Factory A",
+            "2023-01-17",
+            "North Wing",
+            "Extruder",
+            "89.3",
+            "2.1",
+            "Regular",
+            "4.5",
+            "B12347",
+            "98.9",
+            "44",
+            "318",
+          ],
+          [
+            "Factory B",
+            "2023-01-17",
+            "South Wing",
+            "Mixer",
+            "82.7",
+            "3.5",
+            "Regular",
+            "6.2",
+            "B22347",
+            "96.5",
+            "49",
+            "390",
+          ],
+          [
+            "Factory C",
+            "2023-01-17",
+            "East Wing",
+            "Cutter",
+            "95.5",
+            "0.8",
+            "Minimal",
+            "2.3",
+            "B32347",
+            "99.8",
+            "36",
+            "272",
+          ],
+          [
+            "Factory A",
+            "2023-01-18",
+            "North Wing",
+            "Extruder",
+            "90.2",
+            "1.9",
+            "Regular",
+            "4.5",
+            "B12348",
+            "99.0",
+            "43",
+            "316",
+          ],
+          [
+            "Factory B",
+            "2023-01-18",
+            "South Wing",
+            "Mixer",
+            "83.4",
+            "3.3",
+            "Regular",
+            "6.2",
+            "B22348",
+            "96.7",
+            "48",
+            "385",
+          ],
+          [
+            "Factory C",
+            "2023-01-18",
+            "East Wing",
+            "Cutter",
+            "95.8",
+            "0.7",
+            "Minimal",
+            "2.3",
+            "B32348",
+            "99.9",
+            "35",
+            "270",
+          ],
+          [
+            "Factory A",
+            "2023-01-19",
+            "North Wing",
+            "Extruder",
+            "91.5",
+            "1.7",
+            "Regular",
+            "4.5",
+            "B12349",
+            "99.1",
+            "42",
+            "312",
+          ],
+          [
+            "Factory B",
+            "2023-01-19",
+            "South Wing",
+            "Mixer",
+            "84.2",
+            "3.1",
+            "Regular",
+            "6.2",
+            "B22349",
+            "97.0",
+            "47",
+            "380",
+          ],
+          [
+            "Factory C",
+            "2023-01-19",
+            "East Wing",
+            "Cutter",
+            "96.0",
+            "0.6",
+            "Minimal",
+            "2.3",
+            "B32349",
+            "99.9",
+            "35",
+            "268",
+          ],
+        ],
+      }
+    }
+
+    // Default mock data for other files
+    return {
+      headers: ["Column 1", "Column 2", "Column 3", "Column 4", "Column 5"],
+      data: [
+        ["Value 1-1", "Value 1-2", "Value 1-3", "Value 1-4", "Value 1-5"],
+        ["Value 2-1", "Value 2-2", "Value 2-3", "Value 2-4", "Value 2-5"],
+        ["Value 3-1", "Value 3-2", "Value 3-3", "Value 3-4", "Value 3-5"],
+        ["Value 4-1", "Value 4-2", "Value 4-3", "Value 4-4", "Value 4-5"],
+        ["Value 5-1", "Value 5-2", "Value 5-3", "Value 5-4", "Value 5-5"],
+      ],
+    }
+  }
+
   // Fetch data on initial load and when page changes
   useEffect(() => {
     fetchFileHistory()
@@ -483,6 +744,14 @@ export function HistoryTab() {
       }))
     }
 
+    // Initialize preview page if not already set
+    if (!previewPage[id]) {
+      setPreviewPage((prev) => ({
+        ...prev,
+        [id]: 1,
+      }))
+    }
+
     // If we're expanding and we need to fetch data
     if (newExpandedState) {
       const file = files.find((f) => f.id === id)
@@ -497,26 +766,44 @@ export function HistoryTab() {
           },
         }))
 
-        // Fetch data for each tab in parallel
         try {
-          const [previewData, schemaData, statsData] = await Promise.all([
-            fetchPreviewData(id),
-            fetchSchemaData(id),
-            fetchStatisticsData(id),
-          ])
+          // For mock data in preview mode
+          if (error) {
+            // Use mock data
+            const mockPreviewData = generateMockPreviewData(id)
+            const mockSchemaData = file.schema
+            const mockStatsData = file.statistics
 
-          // Store the fetched data
-          setItemData((prev) => ({
-            ...prev,
-            [id]: {
-              preview: previewData,
-              schema: schemaData,
-              stats: statsData,
-            },
-          }))
+            // Simulate API delay
+            await new Promise((resolve) => setTimeout(resolve, 500))
 
-          // Log the fetched schema data for debugging
-          console.log(`Schema data for ${id}:`, schemaData)
+            // Store the mock data
+            setItemData((prev) => ({
+              ...prev,
+              [id]: {
+                preview: mockPreviewData,
+                schema: mockSchemaData,
+                stats: mockStatsData,
+              },
+            }))
+          } else {
+            // Fetch data for each tab in parallel from real API
+            const [previewData, schemaData, statsData] = await Promise.all([
+              fetchPreviewData(id),
+              fetchSchemaData(id),
+              fetchStatisticsData(id),
+            ])
+
+            // Store the fetched data
+            setItemData((prev) => ({
+              ...prev,
+              [id]: {
+                preview: previewData,
+                schema: schemaData,
+                stats: statsData,
+              },
+            }))
+          }
         } catch (error) {
           console.error(`Error fetching data for ingestion ${id}:`, error)
         } finally {
@@ -554,11 +841,41 @@ export function HistoryTab() {
     }
   }
 
-  // Update the renderPreviewContent function to use fetched data
+  // Handle preview pagination
+  const handlePreviewPageChange = (id: string, newPage: number) => {
+    setPreviewPage((prev) => ({
+      ...prev,
+      [id]: newPage,
+    }))
+  }
+
+  // Calculate total preview pages
+  const calculateTotalPreviewPages = (id: string) => {
+    const previewData = itemData[id]?.preview
+    if (!previewData || !previewData.data) return 1
+
+    return Math.ceil(previewData.data.length / previewPageSize)
+  }
+
+  // Get paginated preview data
+  const getPaginatedPreviewData = (id: string) => {
+    const previewData = itemData[id]?.preview
+    if (!previewData || !previewData.data) return { headers: [], rows: [] }
+
+    const currentPage = previewPage[id] || 1
+    const startIndex = (currentPage - 1) * previewPageSize
+    const endIndex = startIndex + previewPageSize
+
+    return {
+      headers: previewData.headers || [],
+      rows: previewData.data.slice(startIndex, endIndex),
+    }
+  }
+
+  // Update the renderPreviewContent function to use fetched data with improved formatting
   const renderPreviewContent = (file: FileHistoryItem) => {
     const id = file.id
     const isLoading = tabLoadingStates[id]?.preview
-    const previewData = itemData[id]?.preview
 
     if (isLoading) {
       return (
@@ -576,7 +893,8 @@ export function HistoryTab() {
       )
     }
 
-    if (!previewData || !previewData.data) {
+    const previewData = itemData[id]?.preview
+    if (!previewData || !previewData.data || previewData.data.length === 0) {
       return (
         <div className="p-4 bg-muted/30 rounded-md text-muted-foreground">
           No preview data available for this ingestion.
@@ -584,65 +902,32 @@ export function HistoryTab() {
       )
     }
 
-    // Render preview based on the data format
-    if (Array.isArray(previewData.data) && previewData.data.length > 0) {
-      // If data is an array of arrays (like CSV)
-      if (Array.isArray(previewData.data[0])) {
-        return (
-          <div className="bg-muted/30 p-4 rounded-md overflow-auto max-h-96">
+    // Get paginated data
+    const { headers, rows } = getPaginatedPreviewData(id)
+    const totalPages = calculateTotalPreviewPages(id)
+    const currentPage = previewPage[id] || 1
+
+    // Render improved table view
+    return (
+      <div className="space-y-4">
+        <div className="bg-card shadow-sm border border-border rounded-md overflow-hidden">
+          <div className="overflow-x-auto">
             <table className="w-full border-collapse">
               <thead>
-                <tr className="border-b border-border">
-                  {previewData.headers &&
-                    previewData.headers.map((header, i) => (
-                      <th key={i} className="text-left p-2">
-                        {header}
-                      </th>
-                    ))}
-                  {!previewData.headers &&
-                    previewData.data[0].map((_, i) => (
-                      <th key={i} className="text-left p-2">
-                        Column {i + 1}
-                      </th>
-                    ))}
-                </tr>
-              </thead>
-              <tbody>
-                {(previewData.headers ? previewData.data : previewData.data.slice(1)).map((row, rowIndex) => (
-                  <tr key={rowIndex} className="border-b border-border">
-                    {row.map((cell, cellIndex) => (
-                      <td key={cellIndex} className="p-2">
-                        {cell !== null ? String(cell) : "NULL"}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )
-      }
-      // If data is an array of objects (like JSON)
-      else if (typeof previewData.data[0] === "object") {
-        const headers = Object.keys(previewData.data[0])
-        return (
-          <div className="bg-muted/30 p-4 rounded-md overflow-auto max-h-96">
-            <table className="w-full border-collapse">
-              <thead>
-                <tr className="border-b border-border">
+                <tr className="bg-muted/50">
                   {headers.map((header, i) => (
-                    <th key={i} className="text-left p-2">
+                    <th key={i} className="px-4 py-2 text-left text-sm font-medium text-muted-foreground border-b">
                       {header}
                     </th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {previewData.data.map((row, rowIndex) => (
-                  <tr key={rowIndex} className="border-b border-border">
-                    {headers.map((header, cellIndex) => (
-                      <td key={cellIndex} className="p-2">
-                        {row[header] !== null ? String(row[header]) : "NULL"}
+                {rows.map((row, rowIndex) => (
+                  <tr key={rowIndex} className={rowIndex % 2 === 0 ? "bg-background" : "bg-muted/20"}>
+                    {row.map((cell, cellIndex) => (
+                      <td key={cellIndex} className="px-4 py-2 text-sm border-b border-border">
+                        {cell !== null ? String(cell) : <span className="text-muted-foreground italic">NULL</span>}
                       </td>
                     ))}
                   </tr>
@@ -650,14 +935,54 @@ export function HistoryTab() {
               </tbody>
             </table>
           </div>
-        )
-      }
-    }
+        </div>
 
-    // Fallback to JSON display
-    return (
-      <div className="bg-muted/30 p-4 rounded-md overflow-auto max-h-96">
-        <pre className="text-sm">{JSON.stringify(previewData.data, null, 2)}</pre>
+        {/* Pagination controls */}
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between">
+            <div className="text-sm text-muted-foreground">
+              Showing {(currentPage - 1) * previewPageSize + 1} to{" "}
+              {Math.min(currentPage * previewPageSize, previewData.data.length)} of {previewData.data.length} rows
+            </div>
+            <div className="flex items-center space-x-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => handlePreviewPageChange(id, 1)}
+                disabled={currentPage === 1}
+              >
+                <ArrowLeft className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => handlePreviewPageChange(id, currentPage - 1)}
+                disabled={currentPage === 1}
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              <span className="text-sm">
+                Page {currentPage} of {totalPages}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => handlePreviewPageChange(id, currentPage + 1)}
+                disabled={currentPage === totalPages}
+              >
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => handlePreviewPageChange(id, totalPages)}
+                disabled={currentPage === totalPages}
+              >
+                <ArrowRight className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+        )}
       </div>
     )
   }
@@ -676,9 +1001,6 @@ export function HistoryTab() {
       )
     }
 
-    // Log schema data for debugging
-    console.log("Rendering schema for file:", file.filename, "Schema data:", schemaData)
-
     if (!schemaData || !schemaData.fields) {
       return (
         <div className="p-4 bg-muted/30 rounded-md text-muted-foreground">
@@ -688,55 +1010,61 @@ export function HistoryTab() {
     }
 
     return (
-      <div className="bg-muted/30 p-4 rounded-md overflow-auto max-h-96">
-        <table className="w-full border-collapse">
-          <thead>
-            <tr className="border-b border-border">
-              <th className="text-left p-2">Field Name</th>
-              <th className="text-left p-2">Type</th>
-              <th className="text-left p-2">Nullable</th>
-              {schemaData.sample_values && <th className="text-left p-2">Sample Value</th>}
-            </tr>
-          </thead>
-          <tbody>
-            {schemaData.fields.map((field, index) => (
-              <tr key={index} className="border-b border-border">
-                <td className="p-2 font-medium">{field.name}</td>
-                <td className="p-2">
-                  <span
-                    className={`px-2 py-1 rounded-full text-xs ${
-                      field.type === "string" || field.type === "text"
-                        ? "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300"
-                        : field.type === "integer" || field.type === "number" || field.type === "float"
-                          ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300"
-                          : field.type === "date" || field.type === "datetime" || field.type === "timestamp"
-                            ? "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300"
-                            : field.type === "boolean"
-                              ? "bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-300"
-                              : "bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300"
-                    }`}
-                  >
-                    {field.type}
-                  </span>
-                </td>
-                <td className="p-2">{field.nullable ? "Yes" : "No"}</td>
+      <div className="bg-card shadow-sm border border-border rounded-md overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full border-collapse">
+            <thead>
+              <tr className="bg-muted/50">
+                <th className="px-4 py-2 text-left text-sm font-medium text-muted-foreground border-b">Field Name</th>
+                <th className="px-4 py-2 text-left text-sm font-medium text-muted-foreground border-b">Type</th>
+                <th className="px-4 py-2 text-left text-sm font-medium text-muted-foreground border-b">Nullable</th>
                 {schemaData.sample_values && (
-                  <td className="p-2 truncate max-w-[200px]">
-                    {schemaData.sample_values[index] !== null && schemaData.sample_values[index] !== undefined ? (
-                      typeof schemaData.sample_values[index] === "object" ? (
-                        JSON.stringify(schemaData.sample_values[index])
-                      ) : (
-                        String(schemaData.sample_values[index])
-                      )
-                    ) : (
-                      <span className="text-muted-foreground italic">NULL</span>
-                    )}
-                  </td>
+                  <th className="px-4 py-2 text-left text-sm font-medium text-muted-foreground border-b">
+                    Sample Value
+                  </th>
                 )}
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {schemaData.fields.map((field, index) => (
+                <tr key={index} className={index % 2 === 0 ? "bg-background" : "bg-muted/20"}>
+                  <td className="px-4 py-2 text-sm font-medium border-b border-border">{field.name}</td>
+                  <td className="px-4 py-2 text-sm border-b border-border">
+                    <span
+                      className={`px-2 py-1 rounded-full text-xs ${
+                        field.type === "string" || field.type === "text"
+                          ? "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300"
+                          : field.type === "integer" || field.type === "number" || field.type === "float"
+                            ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300"
+                            : field.type === "date" || field.type === "datetime" || field.type === "timestamp"
+                              ? "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300"
+                              : field.type === "boolean"
+                                ? "bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-300"
+                                : "bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300"
+                      }`}
+                    >
+                      {field.type}
+                    </span>
+                  </td>
+                  <td className="px-4 py-2 text-sm border-b border-border">{field.nullable ? "Yes" : "No"}</td>
+                  {schemaData.sample_values && (
+                    <td className="px-4 py-2 text-sm border-b border-border truncate max-w-[200px]">
+                      {schemaData.sample_values[index] !== null && schemaData.sample_values[index] !== undefined ? (
+                        typeof schemaData.sample_values[index] === "object" ? (
+                          JSON.stringify(schemaData.sample_values[index])
+                        ) : (
+                          String(schemaData.sample_values[index])
+                        )
+                      ) : (
+                        <span className="text-muted-foreground italic">NULL</span>
+                      )}
+                    </td>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
     )
   }
@@ -765,47 +1093,47 @@ export function HistoryTab() {
 
     return (
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        <div className="bg-muted/30 p-4 rounded-md border border-border">
+        <div className="bg-card shadow-sm p-4 rounded-md border border-border">
           <div className="text-sm text-muted-foreground">Row Count</div>
           <div className="text-2xl font-bold text-foreground">{statsData.row_count?.toLocaleString() || "N/A"}</div>
         </div>
 
-        <div className="bg-muted/30 p-4 rounded-md border border-border">
+        <div className="bg-card shadow-sm p-4 rounded-md border border-border">
           <div className="text-sm text-muted-foreground">Column Count</div>
           <div className="text-2xl font-bold text-foreground">{statsData.column_count || "N/A"}</div>
         </div>
 
-        <div className="bg-muted/30 p-4 rounded-md border border-border">
+        <div className="bg-card shadow-sm p-4 rounded-md border border-border">
           <div className="text-sm text-muted-foreground">Null Percentage</div>
           <div className="text-2xl font-bold text-foreground">{statsData.null_percentage?.toFixed(2) || "N/A"}%</div>
         </div>
 
-        <div className="bg-muted/30 p-4 rounded-md border border-border">
+        <div className="bg-card shadow-sm p-4 rounded-md border border-border">
           <div className="text-sm text-muted-foreground">Memory Usage</div>
           <div className="text-2xl font-bold text-foreground">{statsData.memory_usage || "N/A"}</div>
         </div>
 
-        <div className="bg-muted/30 p-4 rounded-md border border-border">
+        <div className="bg-card shadow-sm p-4 rounded-md border border-border">
           <div className="text-sm text-muted-foreground">Processing Time</div>
           <div className="text-2xl font-bold text-foreground">{statsData.processing_time || "N/A"}</div>
         </div>
 
         {statsData.data_density && (
-          <div className="bg-muted/30 p-4 rounded-md border border-border">
+          <div className="bg-card shadow-sm p-4 rounded-md border border-border">
             <div className="text-sm text-muted-foreground">Data Density</div>
             <div className="text-2xl font-bold text-foreground">{statsData.data_density} rows/KB</div>
           </div>
         )}
 
         {statsData.completion_rate !== undefined && (
-          <div className="bg-muted/30 p-4 rounded-md border border-border">
+          <div className="bg-card shadow-sm p-4 rounded-md border border-border">
             <div className="text-sm text-muted-foreground">Completion Rate</div>
             <div className="text-2xl font-bold text-foreground">{statsData.completion_rate.toFixed(2)}%</div>
           </div>
         )}
 
         {statsData.error_rate !== undefined && (
-          <div className="bg-muted/30 p-4 rounded-md border border-border">
+          <div className="bg-card shadow-sm p-4 rounded-md border border-border">
             <div className="text-sm text-muted-foreground">Error Rate</div>
             <div className="text-2xl font-bold text-foreground">{statsData.error_rate.toFixed(2)}%</div>
           </div>

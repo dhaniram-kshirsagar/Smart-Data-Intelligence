@@ -4,7 +4,6 @@ import { useState } from "react"
 import { Slider } from "@/components/ui/slider"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
-import { InfoIcon as InfoCircle } from "lucide-react"
 
 export function ChunkSizeConfig({ chunkSize, onChunkSizeChange, disabled = false }) {
   const [localChunkSize, setLocalChunkSize] = useState(chunkSize)
@@ -64,26 +63,6 @@ export function ChunkSizeConfig({ chunkSize, onChunkSizeChange, disabled = false
         <span>1000</span>
         <span>5000</span>
         <span>10000</span>
-      </div>
-
-      <div className="mt-4 p-3 bg-muted/50 rounded-md border border-border">
-        <div className="flex items-start">
-          <InfoCircle className="h-5 w-5 text-primary mr-2 mt-0.5 flex-shrink-0" />
-          <div className="text-sm text-muted-foreground">
-            <p className="font-medium text-foreground mb-1">Performance Considerations:</p>
-            <ul className="list-disc list-inside space-y-1 ml-1">
-              <li>
-                <span className="font-medium">Smaller chunks</span> (100-500): Use for complex data or limited memory
-              </li>
-              <li>
-                <span className="font-medium">Medium chunks</span> (500-2000): Balanced performance for most datasets
-              </li>
-              <li>
-                <span className="font-medium">Larger chunks</span> (2000+): Faster for simple data with ample resources
-              </li>
-            </ul>
-          </div>
-        </div>
       </div>
     </div>
   )

@@ -12,7 +12,7 @@ import tempfile
 import shutil
 from pathlib import Path
 import sqlalchemy
-from sqlalchemy import create_engine, MetaData, Table, inspect, desc, func
+from sqlalchemy import create_engine, MetaData, Table, inspect, desc, func, and_, or_
 import requests
 import asyncio
 import threading
@@ -22,9 +22,10 @@ import pandas as pd
 from pydantic import BaseModel, Field
 import numpy as np
 
-from .models import User, get_db, ActivityLog, Role
+from .models import User, get_db, ActivityLog, Role, UploadedFile, IngestionJob
 from .auth import get_current_active_user, has_role, log_activity
 from .data_models import DataSource, DataMetrics, Activity, DashboardData
+from .models import get_db, SessionLocal
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -41,11 +42,89 @@ UPLOAD_DIR.mkdir(exist_ok=True)
 DATA_DIR = Path(__file__).parent / "data"
 DATA_DIR.mkdir(exist_ok=True)
 
-# In-memory storage for uploaded files and their schemas
-uploaded_files = {}
+# Functions to interact with the database
+def get_uploaded_file(db, file_id):
+    """Get uploaded file from database"""
+    return db.query(UploadedFile).filter(UploadedFile.id == file_id).first()
 
-# In-memory storage for ingestion jobs
-ingestion_jobs = {}
+def get_all_uploaded_files(db):
+    """Get all uploaded files from database"""
+    return db.query(UploadedFile).all()
+
+def save_uploaded_file(db, file_id, file_data):
+    """Save uploaded file to database"""
+    # Check if file already exists
+    existing_file = get_uploaded_file(db, file_id)
+    
+    if existing_file:
+        # Update existing file
+        for key, value in file_data.items():
+            if key == 'schema' and value:
+                setattr(existing_file, key, json.dumps(value))
+            else:
+                setattr(existing_file, key, value)
+    else:
+        # Create new file
+        schema_json = json.dumps(file_data.get('schema')) if file_data.get('schema') else None
+        new_file = UploadedFile(
+            id=file_id,
+            filename=file_data['filename'],
+            path=file_data['path'],
+            type=file_data['type'],
+            uploaded_by=file_data['uploaded_by'],
+            uploaded_at=datetime.fromisoformat(file_data['uploaded_at']),
+            chunk_size=file_data.get('chunk_size', 1000),
+            schema=schema_json
+        )
+        db.add(new_file)
+    
+    db.commit()
+    return True
+
+def get_ingestion_job(db, job_id):
+    """Get ingestion job from database"""
+    return db.query(IngestionJob).filter(IngestionJob.id == job_id).first()
+
+def get_all_ingestion_jobs(db):
+    """Get all ingestion jobs from database"""
+    return db.query(IngestionJob).all()
+
+def save_ingestion_job(db, job_id, job_data):
+    """Save ingestion job to database"""
+    # Check if job already exists
+    existing_job = get_ingestion_job(db, job_id)
+    
+    if existing_job:
+        # Update existing job
+        for key, value in job_data.items():
+            if key == 'config' and value:
+                setattr(existing_job, key, json.dumps(value))
+            elif key == 'start_time' and value:
+                setattr(existing_job, key, datetime.fromisoformat(value))
+            elif key == 'end_time' and value:
+                setattr(existing_job, key, datetime.fromisoformat(value))
+            else:
+                setattr(existing_job, key, value)
+    else:
+        # Create new job
+        config_json = json.dumps(job_data.get('config')) if job_data.get('config') else None
+        new_job = IngestionJob(
+            id=job_id,
+            name=job_data['name'],
+            type=job_data['type'],
+            status=job_data['status'],
+            progress=job_data.get('progress', 0),
+            start_time=datetime.fromisoformat(job_data['start_time']),
+            end_time=datetime.fromisoformat(job_data['end_time']) if job_data.get('end_time') else None,
+            details=job_data.get('details'),
+            error=job_data.get('error'),
+            duration=job_data.get('duration'),
+            config=config_json
+        )
+        db.add(new_job)
+    
+    db.commit()
+    return True
 
 # Models for API requests
 class DatabaseConfig(BaseModel):
@@ -399,20 +478,26 @@ def create_connection_string(db_type, config):
     else:
         raise ValueError(f"Unsupported database type: {db_type}")
 
-def process_file_ingestion(job_id, file_id, chunk_size):
-    """Process file ingestion in a background thread"""
+# Process file ingestion with database
+def process_file_ingestion_with_db(job_id, file_id, chunk_size, db):
+    """Process file ingestion in a background thread with database access"""
     try:
+        # Get a new database session
+        db_session = SessionLocal()
+        
         # Update job status
-        ingestion_jobs[job_id]["status"] = "running"
-        ingestion_jobs[job_id]["progress"] = 0
+        job = get_ingestion_job(db_session, job_id)
+        job.status = "running"
+        job.progress = 0
+        db_session.commit()
         
         # Get file info
-        file_info = uploaded_files.get(file_id)
+        file_info = get_uploaded_file(db_session, file_id)
         if not file_info:
             raise ValueError(f"File with ID {file_id} not found")
         
-        file_path = file_info["path"]
-        file_type = file_info["type"]
+        file_path = file_info.path
+        file_type = file_info.type
         
         # Create output file path
         output_file = DATA_DIR / f"{job_id}.parquet"
@@ -428,7 +513,10 @@ def process_file_ingestion(job_id, file_id, chunk_size):
             first_chunk = next(chunk_iterator)
             first_chunk.to_parquet(output_file, index=False)
             processed_rows += len(first_chunk)
-            ingestion_jobs[job_id]["progress"] = min(int((processed_rows / total_rows) * 100), 99)
+            
+            # Update progress
+            job.progress = min(int((processed_rows / total_rows) * 100), 99)
+            db_session.commit()
             
             # Process remaining chunks
             for chunk in chunk_iterator:
@@ -443,7 +531,11 @@ def process_file_ingestion(job_id, file_id, chunk_size):
                     chunk.to_parquet(output_file, index=False)
                     
                 processed_rows += len(chunk)
-                ingestion_jobs[job_id]["progress"] = min(int((processed_rows / total_rows) * 100), 99)
+                
+                # Update progress
+                job.progress = min(int((processed_rows / total_rows) * 100), 99)
+                db_session.commit()
+                
                 time.sleep(0.1)  # Simulate processing time
         
         elif file_type == "json":
@@ -462,34 +554,54 @@ def process_file_ingestion(job_id, file_id, chunk_size):
             
             # Update progress
             for progress in range(0, 100, 10):
-                ingestion_jobs[job_id]["progress"] = progress
+                job.progress = progress
+                db_session.commit()
                 time.sleep(0.2)  # Simulate processing time
         
         # Mark job as completed
-        ingestion_jobs[job_id]["status"] = "completed"
-        ingestion_jobs[job_id]["progress"] = 100
-        ingestion_jobs[job_id]["end_time"] = datetime.now().isoformat()
+        job.status = "completed"
+        job.progress = 100
+        job.end_time = datetime.now()
         
         # Calculate duration
-        start_time = datetime.fromisoformat(ingestion_jobs[job_id]["start_time"])
-        end_time = datetime.fromisoformat(ingestion_jobs[job_id]["end_time"])
+        start_time = job.start_time
+        end_time = job.end_time
         duration = end_time - start_time
-        ingestion_jobs[job_id]["duration"] = str(duration)
+        job.duration = str(duration)
+        
+        db_session.commit()
         
         logger.info(f"File ingestion completed for job {job_id}")
     
     except Exception as e:
         logger.error(f"Error processing file ingestion: {str(e)}")
-        ingestion_jobs[job_id]["status"] = "failed"
-        ingestion_jobs[job_id]["error"] = str(e)
-        ingestion_jobs[job_id]["end_time"] = datetime.now().isoformat()
+        
+        # Update job status to failed
+        try:
+            job = get_ingestion_job(db_session, job_id)
+            job.status = "failed"
+            job.error = str(e)
+            job.end_time = datetime.now()
+            db_session.commit()
+        except:
+            pass
+    
+    finally:
+        # Close the database session
+        db_session.close()
 
-def process_db_ingestion(job_id, db_type, db_config, chunk_size):
-    """Process database ingestion in a background thread"""
+# Process database ingestion with database
+def process_db_ingestion_with_db(job_id, db_type, db_config, chunk_size, db):
+    """Process database ingestion in a background thread with database access"""
     try:
+        # Get a new database session
+        db_session = SessionLocal()
+        
         # Update job status
-        ingestion_jobs[job_id]["status"] = "running"
-        ingestion_jobs[job_id]["progress"] = 0
+        job = get_ingestion_job(db_session, job_id)
+        job.status = "running"
+        job.progress = 0
+        db_session.commit()
         
         # Create connection string
         connection_string = create_connection_string(db_type, db_config)
@@ -512,7 +624,8 @@ def process_db_ingestion(job_id, db_type, db_config, chunk_size):
             
             while offset < total_rows:
                 # Update progress
-                ingestion_jobs[job_id]["progress"] = min(int((processed_rows / total_rows) * 100), 99)
+                job.progress = min(int((processed_rows / total_rows) * 100), 99)
+                db_session.commit()
                 
                 # Read chunk
                 query = f"SELECT * FROM {db_config['table']} LIMIT {chunk_size} OFFSET {offset}"
@@ -540,15 +653,17 @@ def process_db_ingestion(job_id, db_type, db_config, chunk_size):
                 time.sleep(0.2)
             
             # Mark job as completed
-            ingestion_jobs[job_id]["status"] = "completed"
-            ingestion_jobs[job_id]["progress"] = 100
-            ingestion_jobs[job_id]["end_time"] = datetime.now().isoformat()
+            job.status = "completed"
+            job.progress = 100
+            job.end_time = datetime.now()
             
             # Calculate duration
-            start_time = datetime.fromisoformat(ingestion_jobs[job_id]["start_time"])
-            end_time = datetime.fromisoformat(ingestion_jobs[job_id]["end_time"])
+            start_time = job.start_time
+            end_time = job.end_time
             duration = end_time - start_time
-            ingestion_jobs[job_id]["duration"] = str(duration)
+            job.duration = str(duration)
+            
+            db_session.commit()
             
             logger.info(f"Database ingestion completed for job {job_id}")
         
@@ -557,16 +672,28 @@ def process_db_ingestion(job_id, db_type, db_config, chunk_size):
     
     except Exception as e:
         logger.error(f"Error processing database ingestion: {str(e)}")
-        ingestion_jobs[job_id]["status"] = "failed"
-        ingestion_jobs[job_id]["error"] = str(e)
-        ingestion_jobs[job_id]["end_time"] = datetime.now().isoformat()
+        
+        # Update job status to failed
+        try:
+            job = get_ingestion_job(db_session, job_id)
+            job.status = "failed"
+            job.error = str(e)
+            job.end_time = datetime.now()
+            db_session.commit()
+        except:
+            pass
+    
+    finally:
+        # Close the database session
+        db_session.close()
 
 # API Routes
 @router.post("/upload", status_code=status.HTTP_200_OK)
 async def upload_file(
     file: UploadFile = File(...),
     chunkSize: int = Form(1000),
-    current_user: User = Depends(has_role("researcher"))
+    current_user: User = Depends(has_role("researcher")),
+    db: Session = Depends(get_db)
 ):
     """Upload a file for data ingestion"""
     # Validate file type
@@ -593,8 +720,8 @@ async def upload_file(
     finally:
         file.file.close()
     
-    # Store file info
-    uploaded_files[file_id] = {
+    # Store file info in database
+    file_data = {
         "filename": file.filename,
         "path": str(file_path),
         "type": file_ext,
@@ -602,10 +729,11 @@ async def upload_file(
         "uploaded_at": datetime.now().isoformat(),
         "chunk_size": chunkSize
     }
+    save_uploaded_file(db, file_id, file_data)
     
     # Log activity
     log_activity(
-        db=next(get_db()),
+        db=db,
         username=current_user.username,
         action="File upload",
         details=f"Uploaded file: {file.filename} ({file_ext.upper()})"
@@ -616,23 +744,24 @@ async def upload_file(
 @router.get("/schema/{file_id}", status_code=status.HTTP_200_OK)
 async def get_file_schema(
     file_id: str,
-    current_user: User = Depends(has_role("researcher"))
+    current_user: User = Depends(has_role("researcher")),
+    db: Session = Depends(get_db)
 ):
     """Get schema for an uploaded file"""
-    if file_id not in uploaded_files:
+    file_info = get_uploaded_file(db, file_id)
+    if not file_info:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="File not found"
         )
     
-    file_info = uploaded_files[file_id]
-    file_path = file_info["path"]
-    chunk_size = file_info.get("chunk_size", 1000)
+    file_path = file_info.path
+    chunk_size = file_info.chunk_size
     
     try:
-        if file_info["type"] == "csv":
+        if file_info.type == "csv":
             schema = detect_csv_schema(file_path, chunk_size)
-        elif file_info["type"] == "json":
+        elif file_info.type == "json":
             schema = detect_json_schema(file_path, chunk_size)
         else:
             raise HTTPException(
@@ -640,16 +769,18 @@ async def get_file_schema(
                 detail="Unsupported file type"
             )
         
-        # Store schema in file info
-        file_info["schema"] = schema
-        uploaded_files[file_id] = file_info
+        # Store schema in database
+        file_data = {
+            "schema": schema
+        }
+        save_uploaded_file(db, file_id, file_data)
         
         # Log activity
         log_activity(
-            db=next(get_db()),
+            db=db,
             username=current_user.username,
             action="Schema detection",
-            details=f"Detected schema for file: {file_info['filename']}"
+            details=f"Detected schema for file: {file_info.filename}"
         )
         
         return {"schema": schema}
@@ -662,7 +793,8 @@ async def get_file_schema(
 @router.post("/test-connection", status_code=status.HTTP_200_OK)
 async def test_database_connection(
     connection_info: dict,
-    current_user: User = Depends(has_role("researcher"))
+    current_user: User = Depends(has_role("researcher")),
+    db: Session = Depends(get_db)
 ):
     """Test a database connection"""
     try:
@@ -689,7 +821,7 @@ async def test_database_connection(
         
         # Log activity
         log_activity(
-            db=next(get_db()),
+            db=db,
             username=current_user.username,
             action="Database connection test",
             details=f"Tested connection to {db_type} database: {config['database']}"
@@ -705,7 +837,8 @@ async def test_database_connection(
 @router.post("/db-schema", status_code=status.HTTP_200_OK)
 async def get_database_schema(
     connection_info: dict,
-    current_user: User = Depends(has_role("researcher"))
+    current_user: User = Depends(has_role("researcher")),
+    db: Session = Depends(get_db)
 ):
     """Get schema from a database table"""
     try:
@@ -727,7 +860,7 @@ async def get_database_schema(
         
         # Log activity
         log_activity(
-            db=next(get_db()),
+            db=db,
             username=current_user.username,
             action="Database schema detection",
             details=f"Detected schema for table: {config['database']}.{config['table']}"
@@ -744,7 +877,8 @@ async def get_database_schema(
 async def ingest_file(
     request: FileIngestionRequest,
     background_tasks: BackgroundTasks,
-    current_user: User = Depends(has_role("researcher"))
+    current_user: User = Depends(has_role("researcher")),
+    db: Session = Depends(get_db)
 ):
     """Start file ingestion job"""
     try:
@@ -753,7 +887,8 @@ async def ingest_file(
         chunk_size = request.chunk_size
         
         # Check if file exists
-        if file_id not in uploaded_files:
+        file_info = get_uploaded_file(db, file_id)
+        if not file_info:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="File not found"
@@ -762,8 +897,8 @@ async def ingest_file(
         # Generate job ID
         job_id = str(uuid.uuid4())
         
-        # Create job
-        ingestion_jobs[job_id] = {
+        # Create job in database
+        job_data = {
             "id": job_id,
             "name": file_name,
             "type": "file",
@@ -779,13 +914,14 @@ async def ingest_file(
                 "chunk_size": chunk_size
             }
         }
+        save_ingestion_job(db, job_id, job_data)
         
-        # Start background task
-        background_tasks.add_task(process_file_ingestion, job_id, file_id, chunk_size)
+        # Start background task with database session
+        background_tasks.add_task(process_file_ingestion_with_db, job_id, file_id, chunk_size, db)
         
         # Log activity
         log_activity(
-            db=next(get_db()),
+            db=db,
             username=current_user.username,
             action="File ingestion started",
             details=f"Started ingestion for file: {file_name}"
@@ -802,7 +938,8 @@ async def ingest_file(
 async def ingest_database(
     request: DatabaseConfig,
     background_tasks: BackgroundTasks,
-    current_user: User = Depends(has_role("researcher"))
+    current_user: User = Depends(has_role("researcher")),
+    db: Session = Depends(get_db)
 ):
     """Start database ingestion job"""
     try:
@@ -823,8 +960,8 @@ async def ingest_database(
         # Generate job ID
         job_id = str(uuid.uuid4())
         
-        # Create job
-        ingestion_jobs[job_id] = {
+        # Create job in database
+        job_data = {
             "id": job_id,
             "name": connection_name,
             "type": "database",
@@ -841,13 +978,14 @@ async def ingest_database(
                 "table": db_config["table"]
             }
         }
+        save_ingestion_job(db, job_id, job_data)
         
-        # Start background task
-        background_tasks.add_task(process_db_ingestion, job_id, db_type, db_config, chunk_size)
+        # Start background task with database session
+        background_tasks.add_task(process_db_ingestion_with_db, job_id, db_type, db_config, chunk_size, db)
         
         # Log activity
         log_activity(
-            db=next(get_db()),
+            db=db,
             username=current_user.username,
             action="Database ingestion started",
             details=f"Started ingestion for table: {db_config['database']}.{db_config['table']}"
@@ -863,60 +1001,93 @@ async def ingest_database(
 @router.get("/job-status/{job_id}", response_model=JobStatus)
 async def get_job_status(
     job_id: str,
-    current_user: User = Depends(has_role("researcher"))
+    current_user: User = Depends(has_role("researcher")),
+    db: Session = Depends(get_db)
 ):
     """Get status of an ingestion job"""
-    if job_id not in ingestion_jobs:
+    job = get_ingestion_job(db, job_id)
+    if not job:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Job not found"
         )
     
-    return ingestion_jobs[job_id]
+    # Convert database model to response model
+    config = json.loads(job.config) if job.config else None
+    
+    return JobStatus(
+        id=job.id,
+        name=job.name,
+        type=job.type,
+        status=job.status,
+        progress=job.progress,
+        start_time=job.start_time.isoformat(),
+        end_time=job.end_time.isoformat() if job.end_time else None,
+        details=job.details,
+        error=job.error,
+        duration=job.duration,
+        config=config
+    )
 
 @router.post("/cancel-job/{job_id}", status_code=status.HTTP_200_OK)
 async def cancel_job(
     job_id: str,
-    current_user: User = Depends(has_role("researcher"))
+    current_user: User = Depends(has_role("researcher")),
+    db: Session = Depends(get_db)
 ):
     """Cancel an ingestion job"""
-    if job_id not in ingestion_jobs:
+    job = get_ingestion_job(db, job_id)
+    if not job:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Job not found"
         )
     
-    job = ingestion_jobs[job_id]
-    
     # Only cancel running or queued jobs
-    if job["status"] not in ["running", "queued"]:
+    if job.status not in ["running", "queued"]:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Cannot cancel job with status: {job['status']}"
+            detail=f"Cannot cancel job with status: {job.status}"
         )
     
     # Update job status
-    job["status"] = "failed"
-    job["error"] = "Job cancelled by user"
-    job["end_time"] = datetime.now().isoformat()
+    job.status = "failed"
+    job.error = "Job cancelled by user"
+    job.end_time = datetime.now()
     
     # Calculate duration
-    start_time = datetime.fromisoformat(job["start_time"])
-    end_time = datetime.fromisoformat(job["end_time"])
+    start_time = job.start_time
+    end_time = job.end_time
     duration = end_time - start_time
-    job["duration"] = str(duration)
+    job.duration = str(duration)
+    
+    db.commit()
     
     # Log activity
     log_activity(
-        db=next(get_db()),
+        db=db,
         username=current_user.username,
         action="Job cancelled",
-        details=f"Cancelled ingestion job: {job['name']}"
+        details=f"Cancelled ingestion job: {job.name}"
     )
     
-    return job
+    # Convert database model to response model
+    config = json.loads(job.config) if job.config else None
+    
+    return JobStatus(
+        id=job.id,
+        name=job.name,
+        type=job.type,
+        status=job.status,
+        progress=job.progress,
+        start_time=job.start_time.isoformat(),
+        end_time=job.end_time.isoformat() if job.end_time else None,
+        details=job.details,
+        error=job.error,
+        duration=job.duration,
+        config=config
+    )
 
-# New endpoints for the history tab
 @router.get("/ingestion-history", response_model=IngestionHistoryResponse)
 async def get_ingestion_history(
     page: int = Query(1, ge=1),
@@ -926,82 +1097,95 @@ async def get_ingestion_history(
     source: str = Query(""),
     status: str = Query(""),
     search: str = Query(""),
-    current_user: User = Depends(has_role("researcher"))
+    current_user: User = Depends(has_role("researcher")),
+    db: Session = Depends(get_db)
 ):
     """Get history of ingestion jobs with filtering and pagination"""
     try:
-        # Convert ingestion jobs to list
-        jobs_list = []
+        # Build query
+        query = db.query(IngestionJob)
         
-        for job_id, job in ingestion_jobs.items():
-            # Skip jobs that don't match filters
-            if type and job["type"] != type:
-                continue
-                
-            if source:
-                source_type = "database" if job["type"] == "database" else "file"
-                if source_type != source:
-                    continue
-            
-            if status and job.get("status") != status:
-                continue
-                
-            if search:
-                search_lower = search.lower()
-                if search_lower not in job["name"].lower() and search_lower not in job.get("details", "").lower():
-                    continue
-            
+        # Apply filters
+        if type:
+            query = query.filter(IngestionJob.type == type)
+        
+        if source:
+            source_type = "database" if source == "database" else "file"
+            query = query.filter(IngestionJob.type == source_type)
+        
+        if status:
+            query = query.filter(IngestionJob.status == status)
+        
+        if search:
+            search_lower = f"%{search.lower()}%"
+            query = query.filter(
+                or_(
+                    IngestionJob.name.ilike(search_lower),
+                    IngestionJob.details.ilike(search_lower)
+                )
+            )
+        
+        # Apply sorting
+        if sort == "newest":
+            query = query.order_by(IngestionJob.start_time.desc())
+        else:
+            query = query.order_by(IngestionJob.start_time)
+        
+        # Get total count
+        total = query.count()
+        
+        # Apply pagination
+        offset = (page - 1) * limit
+        query = query.offset(offset).limit(limit)
+        
+        # Execute query
+        jobs = query.all()
+        
+        # Convert to response format
+        items = []
+        for job in jobs:
             # Get file info if it's a file ingestion
             file_info = None
-            if job["type"] == "file" and "config" in job and "file_id" in job["config"]:
-                file_id = job["config"]["file_id"]
-                file_info = uploaded_files.get(file_id)
+            config = json.loads(job.config) if job.config else {}
+            
+            if job.type == "file" and config and "file_id" in config:
+                file_id = config["file_id"]
+                file_info = get_uploaded_file(db, file_id)
             
             # Create history item
             history_item = {
-                "id": job_id,
-                "filename": job["name"],
-                "type": "database" if job["type"] == "database" else file_info["type"] if file_info else "unknown",
-                "size": os.path.getsize(file_info["path"]) if file_info and os.path.exists(file_info["path"]) else 0,
-                "uploaded_at": job["start_time"],
+                "id": job.id,
+                "filename": job.name,
+                "type": "database" if job.type == "database" else file_info.type if file_info else "unknown",
+                "size": os.path.getsize(file_info.path) if file_info and os.path.exists(file_info.path) else 0,
+                "uploaded_at": job.start_time.isoformat(),
                 "uploaded_by": current_user.username,
-                "preview_url": f"/api/datapuur/ingestion-preview/{job_id}",
-                "download_url": f"/api/datapuur/ingestion-download/{job_id}",
-                "status": job["status"] if job["status"] != "queued" else "processing",
-                "source_type": "database" if job["type"] == "database" else "file",
+                "preview_url": f"/api/datapuur/ingestion-preview/{job.id}",
+                "download_url": f"/api/datapuur/ingestion-download/{job.id}",
+                "status": job.status if job.status != "queued" else "processing",
+                "source_type": "database" if job.type == "database" else "file",
             }
             
             # Add database info if it's a database ingestion
-            if job["type"] == "database" and "config" in job:
+            if job.type == "database" and config:
                 history_item["database_info"] = {
-                    "type": job["config"].get("type", "unknown"),
-                    "name": job["config"].get("database", "unknown"),
-                    "table": job["config"].get("table", "unknown")
+                    "type": config.get("type", "unknown"),
+                    "name": config.get("database", "unknown"),
+                    "table": config.get("table", "unknown")
                 }
             
-            jobs_list.append(history_item)
-        
-        # Sort the list
-        if sort == "newest":
-            jobs_list.sort(key=lambda x: x["uploaded_at"], reverse=True)
-        else:
-            jobs_list.sort(key=lambda x: x["uploaded_at"])
-        
-        # Calculate total and apply pagination
-        total = len(jobs_list)
-        offset = (page - 1) * limit
-        paginated_list = jobs_list[offset:offset + limit]
+            items.append(history_item)
         
         # Log activity
         log_activity(
-            db=next(get_db()),
+            db=db,
             username=current_user.username,
             action="View ingestion history",
             details=f"Viewed ingestion history (page {page})"
         )
         
         return {
-            "items": paginated_list,
+            "items": items,
             "total": total,
             "page": page,
             "limit": limit
@@ -1015,22 +1199,22 @@ async def get_ingestion_history(
 @router.get("/ingestion-preview/{ingestion_id}", response_model=PreviewResponse)
 async def get_ingestion_preview(
     ingestion_id: str,
-    current_user: User = Depends(has_role("researcher"))
+    current_user: User = Depends(has_role("researcher")),
+    db: Session = Depends(get_db)
 ):
     """Get preview data for an ingestion"""
-    if ingestion_id not in ingestion_jobs:
+    job = get_ingestion_job(db, ingestion_id)
+    if not job:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Ingestion not found"
         )
     
-    job = ingestion_jobs[ingestion_id]
-    
     # Check if job is completed
-    if job["status"] != "completed":
+    if job.status != "completed":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Cannot preview ingestion with status: {job['status']}"
+            detail=f"Cannot preview ingestion with status: {job.status}"
         )
     
     try:
@@ -1050,10 +1234,11 @@ async def get_ingestion_preview(
         preview_df = df.head(10)
         
         # Convert to appropriate format based on job type
-        if job["type"] == "file":
-            file_id = job["config"].get("file_id")
-            file_info = uploaded_files.get(file_id, {})
-            file_type = file_info.get("type", "unknown")
+        if job.type == "file":
+            config = json.loads(job.config) if job.config else {}
+            file_id = config.get("file_id")
+            file_info = get_uploaded_file(db, file_id) if file_id else None
+            file_type = file_info.type if file_info else "unknown"
             
             if file_type == "csv":
                 # For CSV, return as list of lists with headers
@@ -1080,7 +1265,7 @@ async def get_ingestion_preview(
                 return {
                     "data": rows,
                     "headers": headers,
-                    "filename": job["name"],
+                    "filename": job.name,
                     "type": "csv"
                 }
             else:
@@ -1106,7 +1291,7 @@ async def get_ingestion_preview(
                 
                 return {
                     "data": records,
-                    "filename": job["name"],
+                    "filename": job.name,
                     "type": "json"
                 }
         else:
@@ -1132,7 +1317,7 @@ async def get_ingestion_preview(
             
             return {
                 "data": records,
-                "filename": job["name"],
+                "filename": job.name,
                 "type": "database"
             }
     except Exception as e:
@@ -1144,22 +1329,22 @@ async def get_ingestion_preview(
 @router.get("/ingestion-schema/{ingestion_id}", response_model=SchemaResponse)
 async def get_ingestion_schema(
     ingestion_id: str,
-    current_user: User = Depends(has_role("researcher"))
+    current_user: User = Depends(has_role("researcher")),
+    db: Session = Depends(get_db)
 ):
     """Get schema for an ingestion"""
-    if ingestion_id not in ingestion_jobs:
+    job = get_ingestion_job(db, ingestion_id)
+    if not job:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Ingestion not found"
         )
     
-    job = ingestion_jobs[ingestion_id]
-    
     # Check if job is completed
-    if job["status"] != "completed":
+    if job.status != "completed":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Cannot get schema for ingestion with status: {job['status']}"
+            detail=f"Cannot get schema for ingestion with status: {job.status}"
         )
     
     try:
@@ -1259,7 +1444,8 @@ async def get_ingestion_schema(
 @router.get("/debug-schema/{ingestion_id}")
 async def debug_schema(
     ingestion_id: str,
-    current_user: User = Depends(has_role("researcher"))
+    current_user: User = Depends(has_role("researcher")),
+    db: Session = Depends(get_db)
 ):
     """Debug endpoint to check schema data directly"""
     try:
@@ -1314,22 +1500,22 @@ async def debug_schema(
 @router.get("/ingestion-statistics/{ingestion_id}", response_model=StatisticsResponse)
 async def get_ingestion_statistics(
     ingestion_id: str,
-    current_user: User = Depends(has_role("researcher"))
+    current_user: User = Depends(has_role("researcher")),
+    db: Session = Depends(get_db)
 ):
     """Get statistics for an ingestion"""
-    if ingestion_id not in ingestion_jobs:
+    job = get_ingestion_job(db, ingestion_id)
+    if not job:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Ingestion not found"
         )
     
-    job = ingestion_jobs[ingestion_id]
-    
     # Check if job is completed
-    if job["status"] != "completed":
+    if job.status != "completed":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Cannot get statistics for ingestion with status: {job['status']}"
+            detail=f"Cannot get statistics for ingestion with status: {job.status}"
         )
     
     try:
@@ -1372,10 +1558,10 @@ async def get_ingestion_statistics(
         
         # Get processing time from job
         processing_time = "Unknown"
-        if job.get("duration"):
+        if job.duration:
             try:
                 # Parse duration string like "0:00:05.123456"
-                duration_parts = job["duration"].split(":")
+                duration_parts = job.duration.split(":")
                 if len(duration_parts) >= 3:
                     hours = int(duration_parts[0])
                     minutes = int(duration_parts[1])
@@ -1419,22 +1605,22 @@ async def get_ingestion_statistics(
 async def download_ingestion(
     ingestion_id: str,
     format: str = Query("csv", regex="^(csv|json|parquet)$"),
-    current_user: User = Depends(has_role("researcher"))
+    current_user: User = Depends(has_role("researcher")),
+    db: Session = Depends(get_db)
 ):
     """Download ingestion data in specified format"""
-    if ingestion_id not in ingestion_jobs:
+    job = get_ingestion_job(db, ingestion_id)
+    if not job:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Ingestion not found"
         )
     
-    job = ingestion_jobs[ingestion_id]
-    
     # Check if job is completed
-    if job["status"] != "completed":
+    if job.status != "completed":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Cannot download ingestion with status: {job['status']}"
+            detail=f"Cannot download ingestion with status: {job.status}"
         )
     
     try:
@@ -1467,16 +1653,16 @@ async def download_ingestion(
         
         # Log activity
         log_activity(
-            db=next(get_db()),
+            db=db,
             username=current_user.username,
             action="Ingestion download",
-            details=f"Downloaded ingestion data: {job['name']} ({format})"
+            details=f"Downloaded ingestion data: {job.name} ({format})"
         )
         
         # Return the file
         return FileResponse(
             path=temp_path,
-            filename=f"{job['name']}.{format}",
+            filename=f"{job.name}.{format}",
             media_type=media_type,
             background=BackgroundTasks().add_task(lambda: os.unlink(temp_path))
         )
@@ -1486,34 +1672,29 @@ async def download_ingestion(
             detail=f"Error downloading ingestion: {str(e)}"
         )
 
-# Original routes from the template
+# Original routes from the template - updated to use database
 @router.get("/sources", response_model=List[DataSource])
-async def get_data_sources(current_user: User = Depends(has_role("researcher"))):
+async def get_data_sources(
+    current_user: User = Depends(has_role("researcher")),
+    db: Session = Depends(get_db)
+):
     # Get real data sources from ingestion jobs
     sources = []
     
-    # Add file sources
-    for job_id, job in ingestion_jobs.items():
-        if job["type"] == "file" and job["status"] == "completed":
-            sources.append(
-                DataSource(
-                    id=job_id,
-                    name=job["name"],
-                    type="File",
-                    last_updated=job["end_time"],
-                    status="Active"
-                )
+    # Query completed jobs
+    completed_jobs = db.query(IngestionJob).filter(IngestionJob.status == "completed").all()
+    
+    # Add sources
+    for job in completed_jobs:
+        sources.append(
+            DataSource(
+                id=job.id,
+                name=job.name,
+                type="File" if job.type == "file" else "Database",
+                last_updated=job.end_time.isoformat() if job.end_time else None,
+                status="Active"
             )
-        elif job["type"] == "database" and job["status"] == "completed":
-            sources.append(
-                DataSource(
-                    id=job_id,
-                    name=job["name"],
-                    type="Database",
-                    last_updated=job["end_time"],
-                    status="Active"
-                )
-            )
+        )
     
     # If no sources, return empty list
     if not sources:
@@ -1522,33 +1703,36 @@ async def get_data_sources(current_user: User = Depends(has_role("researcher")))
     return sources
 
 @router.get("/metrics", response_model=DataMetrics)
-async def get_data_metrics(current_user: User = Depends(has_role("researcher"))):
+async def get_data_metrics(
+    current_user: User = Depends(has_role("researcher")),
+    db: Session = Depends(get_db)
+):
     # Calculate real metrics from ingestion jobs
     total_records = 0
     processed_records = 0
     failed_records = 0
     processing_time = 0.0
     
-    # Count completed jobs
-    completed_jobs = [job for job_id, job in ingestion_jobs.items() if job["status"] == "completed"]
-    failed_jobs = [job for job_id, job in ingestion_jobs.items() if job["status"] == "failed"]
+    # Query jobs
+    completed_jobs = db.query(IngestionJob).filter(IngestionJob.status == "completed").all()
+    failed_jobs = db.query(IngestionJob).filter(IngestionJob.status == "failed").all()
     
     # Estimate records based on job type
     for job in completed_jobs:
         # In a real system, you would get actual record counts
         # Here we're just estimating based on job type
-        if job["type"] == "file":
+        if job.type == "file":
             total_records += 10000
             processed_records += 10000
-        elif job["type"] == "database":
+        elif job.type == "database":
             total_records += 5000
             processed_records += 5000
         
         # Calculate processing time
-        if job["duration"]:
+        if job.duration:
             try:
                 # Parse duration string like "0:00:05.123456"
-                duration_parts = job["duration"].split(":")
+                duration_parts = job.duration.split(":")
                 hours = int(duration_parts[0])
                 minutes = int(duration_parts[1])
                 seconds = float(duration_parts[2])
@@ -1559,10 +1743,10 @@ async def get_data_metrics(current_user: User = Depends(has_role("researcher")))
     
     # Estimate failed records
     for job in failed_jobs:
-        if job["type"] == "file":
+        if job.type == "file":
             total_records += 10000
             failed_records += 10000
-        elif job["type"] == "database":
+        elif job.type == "database":
             total_records += 5000
             failed_records += 5000
     
@@ -1583,19 +1767,25 @@ async def get_data_metrics(current_user: User = Depends(has_role("researcher")))
     )
 
 @router.get("/activities", response_model=List[Activity])
-async def get_activities(current_user: User = Depends(has_role("researcher"))):
+async def get_activities(
+    current_user: User = Depends(has_role("researcher")),
+    db: Session = Depends(get_db)
+):
     # Get real activities from ingestion jobs
     activities = []
     
+    # Query jobs
+    jobs = db.query(IngestionJob).all()
+    
     # Add job activities
-    for job_id, job in ingestion_jobs.items():
-        status = "success" if job["status"] == "completed" else "error" if job["status"] == "failed" else "processing"
+    for job in jobs:
+        status = "success" if job.status == "completed" else "error" if job.status == "failed" else "processing"
         
         activities.append(
             Activity(
-                id=job_id,
-                action=f"{job['type'].capitalize()} ingestion: {job['name']}",
-                time=job["start_time"],
+                id=job.id,
+                action=f"{job.type.capitalize()} ingestion: {job.name}",
+                time=job.start_time.isoformat(),
                 status=status
             )
         )
@@ -1610,19 +1800,23 @@ async def get_activities(current_user: User = Depends(has_role("researcher"))):
     return sorted_activities
 
 @router.get("/dashboard", response_model=Dict[str, Any])
-async def get_dashboard_data(current_user: User = Depends(has_role("researcher"))):
+async def get_dashboard_data(
+    current_user: User = Depends(has_role("researcher")),
+    db: Session = Depends(get_db)
+):
     # Get real metrics and activities
-    metrics = await get_data_metrics(current_user)
-    activities = await get_activities(current_user)
+    metrics = await get_data_metrics(current_user, db)
+    activities = await get_activities(current_user, db)
     
-    # Generate chart data based on real jobs
-    completed_jobs = [job for job_id, job in ingestion_jobs.items() if job["status"] == "completed"]
-    failed_jobs = [job for job_id, job in ingestion_jobs.items() if job["status"] == "failed"]
-    running_jobs = [job for job_id, job in ingestion_jobs.items() if job["status"] == "running"]
+    # Query jobs
+    completed_jobs = db.query(IngestionJob).filter(IngestionJob.status == "completed").all()
+    failed_jobs = db.query(IngestionJob).filter(IngestionJob.status == "failed").all()
+    running_jobs = db.query(IngestionJob).filter(IngestionJob.status == "running").all()
+    all_jobs = db.query(IngestionJob).all()
     
     # Count job types
-    file_jobs = len([job for job in completed_jobs if job["type"] == "file"])
-    db_jobs = len([job for job in completed_jobs if job["type"] == "database"])
+    file_jobs = len([job for job in completed_jobs if job.type == "file"])
+    db_jobs = len([job for job in completed_jobs if job.type == "database"])
     
     # Create chart data
     chart_data = {
@@ -1633,7 +1827,7 @@ async def get_dashboard_data(current_user: User = Depends(has_role("researcher")
             len(completed_jobs) * 10, 
             len(failed_jobs) * 10, 
             len(running_jobs) * 10, 
-            len(ingestion_jobs) * 5
+            len(all_jobs) * 5
         ],
         "pie_chart": [
             {"label": "File", "value": max(file_jobs, 1), "color": "#8B5CF6"},
@@ -1645,17 +1839,17 @@ async def get_dashboard_data(current_user: User = Depends(has_role("researcher")
                 len(completed_jobs), 
                 len(completed_jobs) + len(failed_jobs), 
                 len(completed_jobs) + len(failed_jobs) + len(running_jobs), 
-                len(ingestion_jobs), 
-                len(ingestion_jobs) + 2, 
-                len(ingestion_jobs) + 5
+                len(all_jobs), 
+                len(all_jobs) + 2, 
+                len(all_jobs) + 5
             ],
             "previous": [
                 max(len(completed_jobs) - 2, 0), 
                 max(len(completed_jobs) + len(failed_jobs) - 3, 0), 
                 max(len(completed_jobs) + len(failed_jobs) + len(running_jobs) - 4, 0), 
-                max(len(ingestion_jobs) - 5, 0), 
-                max(len(ingestion_jobs) - 3, 0), 
-                max(len(ingestion_jobs) - 1, 0)
+                max(len(all_jobs) - 5, 0), 
+                max(len(all_jobs) - 3, 0), 
+                max(len(all_jobs) - 1, 0)
             ]
         }
     }
@@ -1674,45 +1868,45 @@ async def get_dashboard_data(current_user: User = Depends(has_role("researcher")
 async def get_file_history(
     page: int = Query(1, ge=1),
     limit: int = Query(10, ge=1, le=100),
-    current_user: User = Depends(has_role("researcher"))
+    current_user: User = Depends(has_role("researcher")),
+    db: Session = Depends(get_db)
 ):
     """Get history of uploaded files"""
     try:
-        # Calculate offset for pagination
-        offset = (page - 1) * limit
+        # Build query
+        query = db.query(UploadedFile)
         
-        # Get total count of files
-        total_files = len(uploaded_files)
+        # Apply sorting (newest first)
+        query = query.order_by(UploadedFile.uploaded_at.desc())
         
-        # Get files for current page
-        paginated_files = []
-        
-        # Convert dictionary to list and sort by upload time (newest first)
-        files_list = sorted(
-            [
-                {
-                    "id": file_id,
-                    "filename": info["filename"],
-                    "type": info["type"],
-                    "size": os.path.getsize(info["path"]) if os.path.exists(info["path"]) else 0,
-                    "uploaded_at": info["uploaded_at"],
-                    "uploaded_by": info["uploaded_by"],
-                    "preview_url": f"/api/datapuur/preview/{file_id}",
-                    "download_url": f"/api/datapuur/download/{file_id}",
-                    "status": "available"
-                }
-                for file_id, info in uploaded_files.items()
-            ],
-            key=lambda x: x["uploaded_at"],
-            reverse=True
-        )
+        # Get total count
+        total_files = query.count()
         
         # Apply pagination
-        paginated_files = files_list[offset:offset + limit]
+        offset = (page - 1) * limit
+        query = query.offset(offset).limit(limit)
+        
+        # Execute query
+        files = query.all()
+        
+        # Convert to response format
+        paginated_files = []
+        for file in files:
+            paginated_files.append({
+                "id": file.id,
+                "filename": file.filename,
+                "type": file.type,
+                "size": os.path.getsize(file.path) if os.path.exists(file.path) else 0,
+                "uploaded_at": file.uploaded_at.isoformat(),
+                "uploaded_by": file.uploaded_by,
+                "preview_url": f"/api/datapuur/preview/{file.id}",
+                "download_url": f"/api/datapuur/download/{file.id}",
+                "status": "available"
+            })
         
         # Log activity
         log_activity(
-            db=next(get_db()),
+            db=db,
             username=current_user.username,
             action="View file history",
             details=f"Viewed file upload history (page {page})"
@@ -1733,17 +1927,18 @@ async def get_file_history(
 @router.get("/preview/{file_id}", status_code=status.HTTP_200_OK)
 async def preview_file(
     file_id: str,
-    current_user: User = Depends(has_role("researcher"))
+    current_user: User = Depends(has_role("researcher")),
+    db: Session = Depends(get_db)
 ):
     """Preview a file"""
-    if file_id not in uploaded_files:
+    file_info = get_uploaded_file(db, file_id)
+    if not file_info:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="File not found"
         )
     
-    file_info = uploaded_files[file_id]
-    file_path = file_info["path"]
+    file_path = file_info.path
     
     if not os.path.exists(file_path):
         raise HTTPException(
@@ -1753,7 +1948,7 @@ async def preview_file(
     
     try:
         # For CSV files
-        if file_info["type"] == "csv":
+        if file_info.type == "csv":
             # Read first 10 rows
             with open(file_path, 'r', newline='', encoding='utf-8') as csvfile:
                 reader = csv.reader(csvfile)
@@ -1766,21 +1961,21 @@ async def preview_file(
             
             # Log activity
             log_activity(
-                db=next(get_db()),
+                db=db,
                 username=current_user.username,
                 action="File preview",
-                details=f"Previewed file: {file_info['filename']}"
+                details=f"Previewed file: {file_info.filename}"
             )
             
             return {
                 "headers": headers,
                 "rows": rows,
-                "filename": file_info["filename"],
+                "filename": file_info.filename,
                 "type": "csv"
             }
         
         # For JSON files
-        elif file_info["type"] == "json":
+        elif file_info.type == "json":
             with open(file_path, 'r', encoding='utf-8') as jsonfile:
                 data = json.load(jsonfile)
             
@@ -1792,15 +1987,15 @@ async def preview_file(
             
             # Log activity
             log_activity(
-                db=next(get_db()),
+                db=db,
                 username=current_user.username,
                 action="File preview",
-                details=f"Previewed file: {file_info['filename']}"
+                details=f"Previewed file: {file_info.filename}"
             )
             
             return {
                 "data": preview_data,
-                "filename": file_info["filename"],
+                "filename": file_info.filename,
                 "type": "json"
             }
         
@@ -1819,17 +2014,18 @@ async def preview_file(
 @router.get("/download/{file_id}", status_code=status.HTTP_200_OK)
 async def download_file(
     file_id: str,
-    current_user: User = Depends(has_role("researcher"))
+    current_user: User = Depends(has_role("researcher")),
+    db: Session = Depends(get_db)
 ):
     """Download a file"""
-    if file_id not in uploaded_files:
+    file_info = get_uploaded_file(db, file_id)
+    if not file_info:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="File not found"
         )
     
-    file_info = uploaded_files[file_id]
-    file_path = file_info["path"]
+    file_path = file_info.path
     
     if not os.path.exists(file_path):
         raise HTTPException(
@@ -1840,15 +2036,15 @@ async def download_file(
     try:
         # Log activity
         log_activity(
-            db=next(get_db()),
+            db=db,
             username=current_user.username,
             action="File download",
-            details=f"Downloaded file: {file_info['filename']}"
+            details=f"Downloaded file: {file_info.filename}"
         )
         
         return FileResponse(
             path=file_path,
-            filename=file_info["filename"],
+            filename=file_info.filename,
             media_type="application/octet-stream"
         )
     
@@ -1860,3 +2056,4 @@ async def download_file(
 
 # Create data directory if it doesn't exist
 DATA_DIR.mkdir(exist_ok=True)
+

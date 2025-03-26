@@ -14,6 +14,13 @@ from .admin import router as admin_router
 from .middleware import ActivityLoggerMiddleware
 from .migrate_db import migrate_database
 
+# Run database migrations
+try:
+    migrate_database()
+    print("Database migrations completed successfully")
+except Exception as e:
+    print(f"Error running database migrations: {str(e)}")
+
 app = FastAPI(title="Research AI API")
 
 # Configure CORS
@@ -43,7 +50,7 @@ async def health_check():
 @app.on_event("startup")
 async def startup_event():
     # Run database migrations
-    migrate_database()
+    #migrate_database() # Moved to before app instantiation
     
     db = next(get_db())
     admin_user = db.query(User).filter(User.username == "admin").first()

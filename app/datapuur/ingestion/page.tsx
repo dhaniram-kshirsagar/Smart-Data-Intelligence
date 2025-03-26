@@ -129,6 +129,41 @@ export default function IngestionPage() {
                   </TabsList>
 
                   <TabsContent value="file-upload" className="space-y-6">
+                    {/* Processing Configuration - moved above */}
+                    <motion.div
+                      variants={item}
+                      className="bg-card/80 backdrop-blur-sm p-6 rounded-lg border border-border shadow-md"
+                    >
+                      <h3 className="text-xl font-semibold text-foreground mb-4 flex items-center">
+                        <Settings className="w-5 h-5 mr-2 text-primary" />
+                        Processing Configuration
+                      </h3>
+                      <ChunkSizeConfig
+                        chunkSize={chunkSize}
+                        onChunkSizeChange={handleChunkSizeChange}
+                        disabled={isProcessing}
+                      />
+                    </motion.div>
+
+                    {/* Ingestion Jobs - moved above */}
+                    {ingestionJobs.length > 0 && (
+                      <motion.div
+                        variants={item}
+                        className="bg-card/80 backdrop-blur-sm p-6 rounded-lg border border-border shadow-md"
+                      >
+                        <h3 className="text-xl font-semibold text-foreground mb-4 flex items-center">
+                          <Activity className="w-5 h-5 mr-2 text-primary" />
+                          Ingestion Jobs
+                        </h3>
+                        <IngestionMonitor
+                          jobs={ingestionJobs}
+                          onJobUpdated={handleJobUpdated}
+                          errors={ingestionErrors}
+                        />
+                      </motion.div>
+                    )}
+
+                    {/* File Upload */}
                     <motion.div
                       variants={item}
                       className="bg-card/80 backdrop-blur-sm p-6 rounded-lg border border-border shadow-md"
@@ -183,40 +218,8 @@ export default function IngestionPage() {
                   </motion.div>
                 )}
 
-                {/* Ingestion Monitor */}
-                {ingestionJobs.length > 0 && activeTab !== "history" && (
-                  <motion.div
-                    variants={item}
-                    className="bg-card/80 backdrop-blur-sm p-6 rounded-lg border border-border shadow-md"
-                  >
-                    <h3 className="text-xl font-semibold text-foreground mb-4 flex items-center">
-                      <Activity className="w-5 h-5 mr-2 text-primary" />
-                      Ingestion Jobs
-                    </h3>
-                    <IngestionMonitor jobs={ingestionJobs} onJobUpdated={handleJobUpdated} errors={ingestionErrors} />
-                  </motion.div>
-                )}
-
-                {/* Chunk Size Configuration */}
-                {activeTab !== "history" && (
-                  <motion.div
-                    variants={item}
-                    className="bg-card/80 backdrop-blur-sm p-6 rounded-lg border border-border shadow-md"
-                  >
-                    <h3 className="text-xl font-semibold text-foreground mb-4 flex items-center">
-                      <Settings className="w-5 h-5 mr-2 text-primary" />
-                      Processing Configuration
-                    </h3>
-                    <ChunkSizeConfig
-                      chunkSize={chunkSize}
-                      onChunkSizeChange={handleChunkSizeChange}
-                      disabled={isProcessing}
-                    />
-                  </motion.div>
-                )}
-
-                {/* Schema Viewer */}
-                {detectedSchema && activeTab !== "history" && (
+                {/* Schema Viewer - only show for database tab */}
+                {detectedSchema && activeTab === "database" && (
                   <motion.div
                     variants={item}
                     className="bg-card/80 backdrop-blur-sm p-6 rounded-lg border border-border shadow-md"

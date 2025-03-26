@@ -70,6 +70,35 @@ class ActivityLog(Base):
         Index('idx_activity_logs_timestamp', 'timestamp'),
     )
 
+# Add these new model classes after the ActivityLog class but before the "Create tables" line
+
+class UploadedFile(Base):
+    __tablename__ = "uploaded_files"
+
+    id = Column(String, primary_key=True, index=True)
+    filename = Column(String, nullable=False)
+    path = Column(String, nullable=False)
+    type = Column(String, nullable=False)
+    uploaded_by = Column(String, nullable=False)
+    uploaded_at = Column(DateTime, nullable=False)
+    chunk_size = Column(Integer, default=1000)
+    schema = Column(Text, nullable=True)  # Store schema as JSON string
+
+class IngestionJob(Base):
+    __tablename__ = "ingestion_jobs"
+
+    id = Column(String, primary_key=True, index=True)
+    name = Column(String, nullable=False)
+    type = Column(String, nullable=False)  # 'file' or 'database'
+    status = Column(String, nullable=False)  # 'queued', 'running', 'completed', 'failed'
+    progress = Column(Integer, default=0)
+    start_time = Column(DateTime, nullable=False)
+    end_time = Column(DateTime, nullable=True)
+    details = Column(Text, nullable=True)
+    error = Column(Text, nullable=True)
+    duration = Column(String, nullable=True)
+    config = Column(Text, nullable=True)  # Store config as JSON string
+
 # Create tables
 Base.metadata.create_all(bind=engine)
 
