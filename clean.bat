@@ -13,12 +13,48 @@ if exist out (
     rmdir /s /q out
 )
 
-REM Clean static directory
+REM Clean static directories - more comprehensive
+echo Cleaning all static directories...
 if exist static (
-    echo Cleaning static directory...
+    echo Removing static directory...
     rmdir /s /q static
-    mkdir static
 )
+if exist public\static (
+    echo Removing public\static directory...
+    rmdir /s /q public\static
+)
+if exist assets (
+    echo Removing assets directory...
+    rmdir /s /q assets
+)
+if exist public\assets (
+    echo Removing public\assets directory...
+    rmdir /s /q public\assets
+)
+if exist public\images (
+    echo Removing public\images directory...
+    rmdir /s /q public\images
+)
+if exist images (
+    echo Removing images directory...
+    rmdir /s /q images
+)
+if exist public (
+    echo Cleaning public directory static files...
+    if exist public\*.jpg del /f /q public\*.jpg
+    if exist public\*.jpeg del /f /q public\*.jpeg
+    if exist public\*.png del /f /q public\*.png
+    if exist public\*.gif del /f /q public\*.gif
+    if exist public\*.svg del /f /q public\*.svg
+    if exist public\*.ico del /f /q public\*.ico
+    if exist public\*.webp del /f /q public\*.webp
+    if exist public\*.pdf del /f /q public\*.pdf
+    if exist public\*.css del /f /q public\*.css
+)
+
+REM Recreate necessary static directories
+echo Creating essential static directories...
+mkdir static 2>nul
 
 REM Clean data directory if it exists and has content
 if exist data (
