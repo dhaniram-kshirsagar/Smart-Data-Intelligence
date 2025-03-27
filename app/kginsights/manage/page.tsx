@@ -6,8 +6,17 @@ import KGInsightsSidebar from "@/components/kginsights-sidebar"
 import { Button } from "@/components/ui/button"
 import { Settings, Plus, Trash, Edit } from "lucide-react"
 import { motion } from "framer-motion"
+import ProtectedRoute from "@/components/protected-route"
 
 export default function ManageKGraphPage() {
+  return (
+    <ProtectedRoute requiredPermission="kginsights:manage">
+      <ManageKGraphContent />
+    </ProtectedRoute>
+  )
+}
+
+function ManageKGraphContent() {
   // Animation variants
   const container = {
     hidden: { opacity: 0 },
@@ -213,4 +222,3 @@ export default function ManageKGraphPage() {
     </main>
   )
 }
-

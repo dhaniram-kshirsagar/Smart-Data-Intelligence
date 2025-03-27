@@ -10,9 +10,10 @@ import LoadingSpinner from "@/components/loading-spinner"
 interface ProtectedRouteProps {
   children: React.ReactNode
   requiredRole?: string
+  requiredPermission?: string
 }
 
-export default function ProtectedRoute({ children, requiredRole }: ProtectedRouteProps) {
+export default function ProtectedRoute({ children, requiredRole, requiredPermission }: ProtectedRouteProps) {
   const { user, isLoading } = useAuth()
   const router = useRouter()
   const pathname = usePathname()
@@ -30,21 +31,29 @@ export default function ProtectedRoute({ children, requiredRole }: ProtectedRout
         // Normal case - redirect to login if not authenticated
         router.push(`/login?redirect=${encodeURIComponent(pathname)}`)
       }
-    } else if (!isLoading && user && requiredRole) {
-      // Check role permissions
+    } else if (!isLoading && user) {
+      // Admin has access to everything
       if (user.role === "admin") {
-        // Admin has access to everything, no need to redirect
+        return; // Admin has access to everything, no need to redirect
       }
-      // Check specific role permissions
-      else if (
-        (requiredRole === "admin" && user.role !== "admin") ||
-        (requiredRole === "researcher" && !["admin", "researcher"].includes(user.role))
-      ) {
-        // Redirect to home if not authorized
+      
+      // Check role-based permissions
+      if (requiredRole && 
+          (requiredRole === "admin" && user.role !== "admin") ||
+          (requiredRole === "researcher" && !["admin", "researcher"].includes(user.role))) {
+        // Redirect to home if not authorized by role
         router.push("/")
       }
+      
+      // Check permission-based access
+      if (requiredPermission && user.permissions) {
+        // If the user doesn't have the required permission, redirect
+        if (!user.permissions.includes(requiredPermission)) {
+          router.push("/")
+        }
+      }
     }
-  }, [user, isLoading, router, pathname, requiredRole])
+  }, [user, isLoading, router, pathname, requiredRole, requiredPermission])
 
   // Show loading state
   if (isLoading) {
@@ -55,23 +64,31 @@ export default function ProtectedRoute({ children, requiredRole }: ProtectedRout
     )
   }
 
-  // If checking role and user doesn't have required role, don't render children
-  if (
-    requiredRole &&
-    user &&
-    user.role !== "admin" && // Admin can access everything
-    ((requiredRole === "admin" && user.role !== "admin") ||
-      (requiredRole === "researcher" && !["admin", "researcher"].includes(user.role)))
-  ) {
-    return null
-  }
-
   // If not authenticated, don't render children
   if (!user) {
     return null
   }
 
+  // Admin can access everything
+  if (user.role === "admin") {
+    return <>{children}</>
+  }
+
+  // Check role-based access
+  if (requiredRole) {
+    if ((requiredRole === "admin" && user.role !== "admin") ||
+        (requiredRole === "researcher" && !["admin", "researcher"].includes(user.role))) {
+      return null
+    }
+  }
+
+  // Check permission-based access
+  if (requiredPermission && user.permissions) {
+    if (!user.permissions.includes(requiredPermission)) {
+      return null
+    }
+  }
+
   // Render children if authenticated and authorized
   return <>{children}</>
 }
-

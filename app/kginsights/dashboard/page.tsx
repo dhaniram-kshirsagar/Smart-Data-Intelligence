@@ -8,8 +8,17 @@ import { Network } from "lucide-react"
 import { useEffect, useState } from "react"
 import { type KGraphDashboard, getKGraphDashboard } from "@/lib/api"
 import LoadingSpinner from "@/components/loading-spinner"
+import ProtectedRoute from "@/components/protected-route"
 
 export default function KGraphDashboardPage() {
+  return (
+    <ProtectedRoute requiredPermission="kginsights:read">
+      <KGraphDashboardContent />
+    </ProtectedRoute>
+  )
+}
+
+function KGraphDashboardContent() {
   const [dashboardData, setDashboardData] = useState<KGraphDashboard | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -20,7 +29,7 @@ export default function KGraphDashboardPage() {
         setLoading(true)
         const data = await getKGraphDashboard()
         console.log("Successfully fetched KGraph dashboard data:", data)
-        setDashboardData(data)
+        setDashboardData(data as KGraphDashboard)
         setError(null)
       } catch (err) {
         console.error("Error fetching KGraph dashboard data:", err)
@@ -337,4 +346,3 @@ export default function KGraphDashboardPage() {
     </main>
   )
 }
-

@@ -17,8 +17,20 @@ export function PermissionsTab() {
   const [isLoading, setIsLoading] = useState(true)
 
   const openEditRoleDialog = (role: Role) => {
-    setCurrentRole(role)
-    setEditRoleDialog(true)
+    // Create a copy of the role with properly formatted permissions
+    const formattedRole = {
+      ...role,
+      // Ensure permissions is an array
+      permissions: Array.isArray(role.permissions) && role.permissions.length > 0 
+        ? role.permissions 
+        : (Array.isArray(role.permissions_list) && role.permissions_list.length > 0 
+          ? role.permissions_list 
+          : [])
+    };
+    
+    console.log("Opening edit dialog with formatted role:", formattedRole);
+    setCurrentRole(formattedRole);
+    setEditRoleDialog(true);
   }
 
   // Fetch roles when the component mounts

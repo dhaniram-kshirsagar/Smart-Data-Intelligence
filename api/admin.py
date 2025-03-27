@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict
 import json
 
 from .models import get_db, User, ActivityLog, Role
-from .auth import get_current_user, has_role, log_activity
+from .auth import get_current_user, has_role, log_activity, has_permission, AVAILABLE_PERMISSIONS
 
 # Router
 router = APIRouter(prefix="/api/admin", tags=["admin"])
@@ -479,6 +479,13 @@ async def delete_role(
     
     return {"message": "Role deleted successfully"}
 
+@router.get("/permissions")
+async def get_permissions(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(has_role("admin"))
+):
+    return AVAILABLE_PERMISSIONS
+
 @router.get("/settings", response_model=SystemSettings)
 async def get_system_settings(current_user: User = Depends(has_role("admin"))):
     """Get system settings (admin only)"""
@@ -609,4 +616,3 @@ async def cleanup_data(
     
     background_tasks.add_task(perform_cleanup)
     return {"message": "Data cleanup started"}
-

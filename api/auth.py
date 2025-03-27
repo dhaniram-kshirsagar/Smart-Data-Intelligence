@@ -28,6 +28,7 @@ class Token(BaseModel):
     user_id: int
     username: str
     role: str
+    permissions: List[str]
 
 class TokenData(BaseModel):
     username: Optional[str] = None
@@ -80,7 +81,9 @@ AVAILABLE_PERMISSIONS = [
     # User management permissions
     "user:read", "user:create", "user:update", "user:delete",
     # Role management permissions
-    "role:read", "role:create", "role:update", "role:delete"
+    "role:read", "role:create", "role:update", "role:delete",
+    # KGInsights permissions
+    "kginsights:read", "kginsights:write", "kginsights:manage"
 ]
 
 # Helper functions
@@ -179,6 +182,10 @@ def has_permission(permission: str):
             print(f"Checking permission '{permission}' for user '{current_user.username}' with role '{role.name}'")
             print(f"Role permissions: {role_permissions}")
             
+            # Special case for researcher role and kginsights permissions
+            if current_user.role == "researcher" and permission.startswith("kginsights:"):
+                return current_user
+                
             if permission in role_permissions:
                 return current_user
         except Exception as e:
@@ -396,6 +403,18 @@ async def login_for_access_token(
             headers={"WWW-Authenticate": "Bearer"},
         )
     
+    # Get user's role and permissions
+    user_role = db.query(Role).filter(Role.name == user.role).first()
+    permissions = []
+    
+    # If user has a role, get its permissions
+    if user_role:
+        permissions = user_role.get_permissions()
+    
+    # Admin role has all permissions
+    if user.role == "admin":
+        permissions = AVAILABLE_PERMISSIONS
+    
     # Create access token
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
@@ -421,7 +440,8 @@ async def login_for_access_token(
         "token_type": "bearer",
         "user_id": user.id,
         "username": user.username,
-        "role": user.role
+        "role": user.role,
+        "permissions": permissions
     }
 
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)

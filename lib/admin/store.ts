@@ -6,6 +6,7 @@ export interface Role {
   name: string
   description: string
   permissions: string[]
+  permissions_list?: string[] // Add this property for backend compatibility
   is_system_role?: boolean
   created_at?: string
   updated_at?: string

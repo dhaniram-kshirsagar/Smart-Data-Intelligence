@@ -10,7 +10,7 @@ import ProtectedRoute from "@/components/protected-route"
 
 export default function KGInsightsPage() {
   return (
-    <ProtectedRoute requiredRole="researcher">
+    <ProtectedRoute requiredPermission="kginsights:read">
       <KGInsightsContent />
     </ProtectedRoute>
   )
@@ -174,4 +174,3 @@ function KGInsightsContent() {
     </main>
   )
 }
-

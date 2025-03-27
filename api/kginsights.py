@@ -4,7 +4,7 @@ from typing import List, Dict, Any
 import random
 
 from .models import User, get_db
-from .auth import get_current_active_user, has_role
+from .auth import get_current_active_user, has_role, has_permission
 from .data_models import GraphNode, GraphEdge, GraphMetrics, KGraphDashboard
 
 # Router
@@ -47,7 +47,7 @@ def generate_graph_updates():
 
 # API Routes
 @router.get("/graph", response_model=Dict[str, Any])
-async def get_graph_data(current_user: User = Depends(has_role("researcher"))):
+async def get_graph_data(current_user: User = Depends(has_permission("kginsights:read"))):
     nodes = generate_graph_nodes()
     edges = generate_graph_edges()
     return {
@@ -56,15 +56,15 @@ async def get_graph_data(current_user: User = Depends(has_role("researcher"))):
     }
 
 @router.get("/metrics", response_model=GraphMetrics)
-async def get_graph_metrics(current_user: User = Depends(has_role("researcher"))):
+async def get_graph_metrics(current_user: User = Depends(has_permission("kginsights:read"))):
     return generate_graph_metrics()
 
 @router.get("/updates", response_model=List[Dict[str, str]])
-async def get_graph_updates(current_user: User = Depends(has_role("researcher"))):
+async def get_graph_updates(current_user: User = Depends(has_permission("kginsights:read"))):
     return generate_graph_updates()
 
 @router.get("/dashboard", response_model=Dict[str, Any])
-async def get_kgraph_dashboard(current_user: User = Depends(has_role("researcher"))):
+async def get_kgraph_dashboard(current_user: User = Depends(has_permission("kginsights:read"))):
     nodes = generate_graph_nodes()
     edges = generate_graph_edges()
     metrics = generate_graph_metrics()
@@ -78,4 +78,3 @@ async def get_kgraph_dashboard(current_user: User = Depends(has_role("researcher
         "metrics": metrics.dict(),
         "updates": updates
     }
-

@@ -32,19 +32,28 @@ export async function syncRoles() {
     const rolesData = await response.json()
     console.log("Fetched roles from backend:", rolesData)
 
-    // Update the store with the fetched roles
     const { setRoles } = useAdminStore.getState()
 
     // Transform the roles data if needed to match the expected format
-    const formattedRoles = rolesData.map((role) => ({
-      id: role.id,
-      name: role.name,
-      description: role.description || "",
-      permissions: role.permissions_list || [], // Use permissions_list which is the alias for permissions in the backend
-      is_system_role: role.is_system_role || false,
-      created_at: role.created_at,
-      updated_at: role.updated_at
-    }))
+    const formattedRoles = rolesData.map((role) => {
+      // Ensure permissions is properly set from either permissions_list or permissions
+      const permissions = Array.isArray(role.permissions_list) 
+        ? role.permissions_list 
+        : (Array.isArray(role.permissions) ? role.permissions : []);
+      
+      console.log(`Role ${role.name} permissions:`, permissions);
+      
+      return {
+        id: role.id,
+        name: role.name,
+        description: role.description || "",
+        permissions: permissions,
+        permissions_list: permissions, // Keep both for compatibility
+        is_system_role: role.is_system_role || false,
+        created_at: role.created_at,
+        updated_at: role.updated_at
+      };
+    })
 
     setRoles(formattedRoles)
 
@@ -87,7 +96,7 @@ export async function syncRoles() {
 }
 
 /**
- * Synchronizes available permissions from the backend
+ * Syncs available permissions from the backend
  */
 export async function syncAvailablePermissions() {
   try {
@@ -107,11 +116,24 @@ export async function syncAvailablePermissions() {
     }
 
     // Fetch available permissions from the backend
-    // Update the URL to use the correct endpoint
     const response = await fetch(`${apiUrl}/admin/permissions`, { headers })
 
     if (!response.ok) {
-      throw new Error(`Failed to fetch permissions: ${response.statusText}`)
+      console.warn(`Failed to fetch permissions: ${response.statusText}. Using default permissions.`)
+      // Use default permissions if the API call fails
+      const defaultPermissions = [
+        "data:read", "data:write", "data:delete", "data:upload",
+        "ingestion:create", "ingestion:read", "ingestion:update", "ingestion:delete",
+        "schema:read", "schema:write",
+        "database:connect", "database:read", "database:write",
+        "user:read", "user:create", "user:update", "user:delete",
+        "role:read", "role:write", "role:create", "role:delete",
+        "kginsights:read", "kginsights:write", "kginsights:manage"
+      ]
+      
+      const { setAvailablePermissions } = useAdminStore.getState()
+      setAvailablePermissions(defaultPermissions)
+      return defaultPermissions
     }
 
     const permissionsData = await response.json()
@@ -124,7 +146,22 @@ export async function syncAvailablePermissions() {
     return permissionsData
   } catch (error) {
     console.error("Error syncing permissions:", error)
-    return []
+    
+    // If the API call fails, use default permissions
+    const defaultPermissions = [
+      "data:read", "data:write", "data:delete", "data:upload",
+      "ingestion:create", "ingestion:read", "ingestion:update", "ingestion:delete",
+      "schema:read", "schema:write",
+      "database:connect", "database:read", "database:write",
+      "user:read", "user:create", "user:update", "user:delete",
+      "role:read", "role:write", "role:create", "role:delete",
+      "kginsights:read", "kginsights:write", "kginsights:manage"
+    ]
+    
+    const { setAvailablePermissions } = useAdminStore.getState()
+    setAvailablePermissions(defaultPermissions)
+    
+    return defaultPermissions
   }
 }
 
@@ -155,12 +192,19 @@ export async function saveRoleToBackend(role: Role) {
     const url = isNewRole ? `${apiUrl}/admin/roles` : `${apiUrl}/admin/roles/${role.id}`
     const method = isNewRole ? "POST" : "PUT"
 
-    console.log(`Saving role to backend: ${JSON.stringify(role)}`)
+    // Ensure we're sending the permissions in the format the backend expects
+    const roleToSend = {
+      ...role,
+      // The backend expects permissions to be an array of strings
+      permissions: Array.isArray(role.permissions) ? role.permissions : []
+    };
+
+    console.log(`Saving role to backend: ${JSON.stringify(roleToSend)}`)
 
     const response = await fetch(url, {
       method,
       headers,
-      body: JSON.stringify(role),
+      body: JSON.stringify(roleToSend),
     })
 
     if (!response.ok) {

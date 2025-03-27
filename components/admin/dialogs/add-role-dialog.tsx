@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { RefreshCw } from "lucide-react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
@@ -17,19 +17,39 @@ interface AddRoleDialogProps {
 
 export function AddRoleDialog({ open, onOpenChange }: AddRoleDialogProps) {
   const { roles, setRoles, availablePermissions, isProcessing, setIsProcessing, setNotification } = useAdminStore()
-  const [newRole, setNewRole] = useState({
+  const [newRole, setNewRole] = useState<{
+    name: string;
+    description: string;
+    permissions: string[];
+  }>({
     name: "",
     description: "",
-    permissions: [] as string[],
+    permissions: [],
   })
+
+  // Reset form when dialog opens/closes
+  useEffect(() => {
+    if (!open) {
+      // Reset form when dialog closes
+      setNewRole({
+        name: "",
+        description: "",
+        permissions: [],
+      });
+    }
+  }, [open]);
 
   const togglePermission = (permission: string) => {
     setNewRole((prev) => {
-      const permissions = prev.permissions.includes(permission)
-        ? prev.permissions.filter((p: string) => p !== permission)
-        : [...prev.permissions, permission]
-      return { ...prev, permissions }
-    })
+      const updatedPermissions = prev.permissions.includes(permission)
+        ? prev.permissions.filter((p) => p !== permission)
+        : [...prev.permissions, permission];
+      
+      return { 
+        ...prev, 
+        permissions: updatedPermissions 
+      };
+    });
   }
 
   const handleAddRole = async () => {
@@ -54,11 +74,22 @@ export function AddRoleDialog({ open, onOpenChange }: AddRoleDialogProps) {
     setIsProcessing(true)
     try {
       // Save the role to the backend
-      await saveRoleToBackend({
+      const savedRole = await saveRoleToBackend({
         name: newRole.name,
         description: newRole.description,
         permissions: newRole.permissions,
       })
+      
+      console.log("New role created successfully:", savedRole);
+
+      // Add the role to the store with proper permissions
+      const roleToAdd = {
+        ...savedRole,
+        // Ensure permissions is properly set from the backend response
+        permissions: savedRole.permissions_list || savedRole.permissions || []
+      };
+      
+      setRoles([...roles, roleToAdd]);
 
       setNotification({
         type: "success",

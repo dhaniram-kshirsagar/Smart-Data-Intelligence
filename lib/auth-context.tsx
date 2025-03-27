@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation"
 interface User {
   username: string
   role: string
+  permissions?: string[]
 }
 
 interface AuthContextType {
@@ -77,12 +78,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         JSON.stringify({
           username: data.username,
           role: data.role,
+          permissions: data.permissions || []
         }),
       )
 
       setUser({
         username: data.username,
         role: data.role,
+        permissions: data.permissions || []
       })
 
       // Redirect to home page
@@ -231,4 +234,3 @@ export function useAuth() {
   }
   return context
 }
-

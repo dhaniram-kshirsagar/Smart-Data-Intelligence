@@ -18,39 +18,57 @@ interface EditRoleDialogProps {
 
 export function EditRoleDialog({ open, onOpenChange, role }: EditRoleDialogProps) {
   const { roles, setRoles, availablePermissions, isProcessing, setIsProcessing, setNotification } = useAdminStore()
-  const [editedRole, setEditedRole] = useState({
+  const [editedRole, setEditedRole] = useState<{
+    id: number;
+    name: string;
+    description: string;
+    permissions: string[];
+    is_system_role: boolean;
+  }>({
     id: role?.id || 0,
     name: role?.name || "",
     description: role?.description || "",
-    permissions: role?.permissions_list || role?.permissions || [],
+    permissions: role?.permissions || [],
     is_system_role: role?.is_system_role || false
   })
 
   // Update the edited role when the role prop changes
   useEffect(() => {
     if (role) {
+      // Debug log to help troubleshoot
+      console.log("Role data received in EditRoleDialog:", role);
+      
+      // Ensure we have the permissions data, checking all possible sources
+      let permissions: string[] = [];
+      if (Array.isArray(role.permissions) && role.permissions.length > 0) {
+        permissions = role.permissions;
+      } else if (Array.isArray(role.permissions_list) && role.permissions_list.length > 0) {
+        permissions = role.permissions_list;
+      }
+      
+      console.log("Permissions set in EditRoleDialog:", permissions);
+      
       setEditedRole({
         id: role.id || 0,
         name: role.name || "",
         description: role.description || "",
-        // Check for permissions_list first (from backend), then permissions (from frontend store)
-        permissions: role.permissions_list || role.permissions || [],
+        permissions: permissions,
         is_system_role: role.is_system_role || false
-      })
-      
-      // Debug log to help troubleshoot
-      console.log("Role data received:", role)
-      console.log("Permissions set:", role.permissions_list || role.permissions || [])
+      });
     }
   }, [role])
 
   const togglePermission = (permission: string) => {
     setEditedRole((prev) => {
-      const permissions = prev.permissions.includes(permission)
-        ? prev.permissions.filter((p: string) => p !== permission)
-        : [...prev.permissions, permission]
-      return { ...prev, permissions }
-    })
+      const updatedPermissions = prev.permissions.includes(permission)
+        ? prev.permissions.filter((p) => p !== permission)
+        : [...prev.permissions, permission];
+      
+      return { 
+        ...prev, 
+        permissions: updatedPermissions 
+      };
+    });
   }
 
   const handleSaveChanges = async () => {
@@ -84,12 +102,24 @@ export function EditRoleDialog({ open, onOpenChange, role }: EditRoleDialogProps
     setIsProcessing(true)
     try {
       // Save the role to the backend
-      await saveRoleToBackend({
+      const savedRole = await saveRoleToBackend({
         id: role.id,
         name: editedRole.name,
         description: editedRole.description,
         permissions: editedRole.permissions,
       })
+      
+      console.log("Role saved successfully:", savedRole);
+
+      // Update the role in the store
+      const updatedRoles = roles.map(r => 
+        r.id === savedRole.id ? {
+          ...savedRole,
+          // Ensure permissions is properly set from the backend response
+          permissions: savedRole.permissions_list || savedRole.permissions || []
+        } : r
+      );
+      setRoles(updatedRoles);
 
       setNotification({
         type: "success",
