@@ -19,8 +19,8 @@ import threading
 import time
 import logging
 import pandas as pd
-from pydantic import BaseModel, Field
 import numpy as np
+from pydantic import BaseModel, Field
 
 from .models import User, get_db, ActivityLog, Role, UploadedFile, IngestionJob
 from .auth import get_current_active_user, has_role, has_permission, log_activity
@@ -1225,21 +1225,21 @@ async def get_ingestion_preview(
     db: Session = Depends(get_db)
 ):
     """Get preview data for an ingestion"""
-    job = get_ingestion_job(db, ingestion_id)
-    if not job:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Ingestion not found"
-        )
-    
-    # Check if job is completed
-    if job.status != "completed":
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Cannot preview ingestion with status: {job.status}"
-        )
-    
     try:
+        job = get_ingestion_job(db, ingestion_id)
+        if not job:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Ingestion not found"
+            )
+        
+        # Check if job is completed
+        if job.status != "completed":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Cannot preview ingestion with status: {job.status}"
+            )
+        
         # Get the parquet file path
         parquet_path = DATA_DIR / f"{ingestion_id}.parquet"
         
@@ -1249,103 +1249,145 @@ async def get_ingestion_preview(
                 detail="Ingestion data file not found"
             )
         
-        # Read the parquet file
-        df = pd.read_parquet(parquet_path)
-        
-        # Limit to first 10 rows for preview
-        preview_df = df.head(10)
-        
-        # Convert to appropriate format based on job type
-        if job.type == "file":
-            config = json.loads(job.config) if job.config else {}
-            file_id = config.get("file_id")
-            file_info = get_uploaded_file(db, file_id) if file_id else None
-            file_type = file_info.type if file_info else "unknown"
+        try:
+            # Read the parquet file
+            df = pd.read_parquet(parquet_path)
             
-            if file_type == "csv":
-                # For CSV, return as list of lists with headers
+            # Limit to first 10 rows for preview
+            preview_df = df.head(10)
+            
+            # Convert to appropriate format based on job type
+            if job.type == "file":
+                config = json.loads(job.config) if job.config else {}
+                file_id = config.get("file_id")
+                file_info = get_uploaded_file(db, file_id) if file_id else None
+                file_type = file_info.type if file_info else "unknown"
+                
+                if file_type == "csv":
+                    # For CSV, return as list of lists with headers
+                    headers = preview_df.columns.tolist()
+                    # Convert NumPy types to Python native types
+                    rows = []
+                    for row in preview_df.values:
+                        python_row = []
+                        for item in row:
+                            if pd.isna(item):
+                                python_row.append(None)
+                            elif isinstance(item, (np.integer, np.floating)):
+                                python_row.append(item.item())
+                            else:
+                                python_row.append(item)
+                        rows.append(python_row)
+                    
+                    return {
+                        "data": rows,
+                        "headers": headers,
+                        "filename": file_info.filename if file_info else f"file_{file_id}",
+                        "type": "csv"
+                    }
+                elif file_type == "json":
+                    # For JSON, return as list of dictionaries
+                    # Convert DataFrame to records and then handle NumPy types
+                    records = []
+                    for record in preview_df.to_dict(orient='records'):
+                        clean_record = {}
+                        for key, value in record.items():
+                            if pd.isna(value):
+                                clean_record[key] = None
+                            elif isinstance(value, (np.integer, np.floating)):
+                                clean_record[key] = value.item()
+                            else:
+                                clean_record[key] = value
+                        records.append(clean_record)
+                    
+                    return {
+                        "data": records,
+                        "headers": preview_df.columns.tolist(),
+                        "filename": file_info.filename if file_info else f"file_{file_id}",
+                        "type": "json"
+                    }
+                else:
+                    # Generic table format
+                    headers = preview_df.columns.tolist()
+                    rows = []
+                    for row in preview_df.values:
+                        python_row = []
+                        for item in row:
+                            if pd.isna(item):
+                                python_row.append(None)
+                            elif isinstance(item, (np.integer, np.floating)):
+                                python_row.append(item.item())
+                            else:
+                                python_row.append(item)
+                        rows.append(python_row)
+                    
+                    return {
+                        "data": rows,
+                        "headers": headers,
+                        "filename": file_info.filename if file_info else f"file_{file_id}",
+                        "type": "table"
+                    }
+            elif job.type == "database":
+                # For database, return as list of dictionaries
+                config = json.loads(job.config) if job.config else {}
+                connection_name = config.get("connection_name", "Database Connection")
+                
+                # Convert DataFrame to records and then handle NumPy types
+                records = []
+                for record in preview_df.to_dict(orient='records'):
+                    clean_record = {}
+                    for key, value in record.items():
+                        if pd.isna(value):
+                            clean_record[key] = None
+                        elif isinstance(value, (np.integer, np.floating)):
+                            clean_record[key] = value.item()
+                        else:
+                            clean_record[key] = value
+                    records.append(clean_record)
+                
+                return {
+                    "data": records,
+                    "headers": preview_df.columns.tolist(),
+                    "filename": connection_name,
+                    "type": "database"
+                }
+            else:
+                # Generic table format as fallback
                 headers = preview_df.columns.tolist()
-                # Convert NumPy types to Python native types
                 rows = []
                 for row in preview_df.values:
                     python_row = []
-                    for value in row:
-                        if isinstance(value, (np.integer, np.floating)):
-                            python_row.append(value.item())
-                        elif isinstance(value, np.bool_):
-                            python_row.append(bool(value))
-                        elif pd.isna(value):
+                    for item in row:
+                        if pd.isna(item):
                             python_row.append(None)
-                        elif isinstance(value, np.ndarray):
-                            python_row.append(value.tolist())
-                        elif isinstance(value, pd.Timestamp):
-                            python_row.append(str(value))
+                        elif isinstance(item, (np.integer, np.floating)):
+                            python_row.append(item.item())
                         else:
-                            python_row.append(value)
+                            python_row.append(item)
                     rows.append(python_row)
                 
                 return {
                     "data": rows,
                     "headers": headers,
-                    "filename": job.name,
-                    "type": "csv"
+                    "filename": f"ingestion_{ingestion_id}",
+                    "type": "table"
                 }
-            else:
-                # For JSON, return as list of objects
-                # Convert DataFrame to dict and handle NumPy types
-                records = []
-                for record in preview_df.to_dict(orient="records"):
-                    python_record = {}
-                    for key, value in record.items():
-                        if isinstance(value, (np.integer, np.floating)):
-                            python_record[key] = value.item()
-                        elif isinstance(value, np.bool_):
-                            python_record[key] = bool(value)
-                        elif pd.isna(value):
-                            python_record[key] = None
-                        elif isinstance(value, np.ndarray):
-                            python_record[key] = value.tolist()
-                        elif isinstance(value, pd.Timestamp):
-                            python_record[key] = str(value)
-                        else:
-                            python_record[key] = value
-                    records.append(python_record)
-                
-                return {
-                    "data": records,
-                    "filename": job.name,
-                    "type": "json"
-                }
-        else:
-            # For database, return as list of objects
-            # Convert DataFrame to dict and handle NumPy types
-            records = []
-            for record in preview_df.to_dict(orient="records"):
-                python_record = {}
-                for key, value in record.items():
-                    if isinstance(value, (np.integer, np.floating)):
-                        python_record[key] = value.item()
-                    elif isinstance(value, np.bool_):
-                        python_record[key] = bool(value)
-                    elif pd.isna(value):
-                        python_record[key] = None
-                    elif isinstance(value, np.ndarray):
-                        python_record[key] = value.tolist()
-                    elif isinstance(value, pd.Timestamp):
-                        python_record[key] = str(value)
-                    else:
-                        python_record[key] = value
-                records.append(python_record)
-            
-            return {
-                "data": records,
-                "filename": job.name,
-                "type": "database"
-            }
+        except Exception as e:
+            # Log the specific parquet reading error
+            print(f"Error reading parquet file: {str(e)}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Error reading ingestion data: {str(e)}"
+            )
+    except HTTPException:
+        # Re-raise HTTP exceptions as is
+        raise
     except Exception as e:
+        # Catch any other exceptions and return a 500 error
+        print(f"Unexpected error in get_ingestion_preview: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error generating preview: {str(e)}"
+            detail=f"Unexpected error processing preview: {str(e)}"
         )
 
 @router.get("/ingestion-schema/{ingestion_id}", response_model=SchemaResponse)
@@ -1484,6 +1526,23 @@ async def debug_schema(
         columns_info = []
         for column in df.columns:
             dtype = df[column].dtype
+            
+            # Determine field type
+            if pd.api.types.is_integer_dtype(dtype):
+                field_type = "integer"
+            elif pd.api.types.is_float_dtype(dtype):
+                field_type = "float"
+            elif pd.api.types.is_bool_dtype(dtype):
+                field_type = "boolean"
+            elif pd.api.types.is_datetime64_dtype(dtype):
+                field_type = "datetime"
+            else:
+                field_type = "string"
+            
+            # Check nullability - convert numpy.bool_ to Python bool
+            nullable = bool(df[column].isna().any())
+            
+            # Get sample value
             sample = None
             non_null_values = df[column].dropna()
             if not non_null_values.empty:
@@ -1491,13 +1550,13 @@ async def debug_schema(
                 
                 # Convert NumPy types to Python native types
                 if isinstance(sample_value, (np.integer, np.floating)):
-                    sample = sample_value.item()
+                    sample = sample_value.item()  # Convert NumPy scalar to Python native type
                 elif isinstance(sample_value, np.bool_):
-                    sample = bool(sample_value)
+                    sample = bool(sample_value)  # Convert NumPy boolean to Python boolean
                 elif pd.api.types.is_datetime64_dtype(dtype):
                     sample = str(sample_value)
                 elif isinstance(sample_value, np.ndarray):
-                    sample = sample_value.tolist()
+                    sample = sample_value.tolist()  # Convert NumPy array to list
                 elif isinstance(sample_value, pd.Timestamp):
                     sample = str(sample_value)
                 else:
@@ -1506,7 +1565,7 @@ async def debug_schema(
             columns_info.append({
                 "name": column,
                 "dtype": str(dtype),
-                "nullable": df[column].isna().any(),
+                "nullable": nullable,
                 "sample": sample,
                 "sample_type": type(sample).__name__
             })
@@ -2078,4 +2137,3 @@ async def download_file(
 
 # Create data directory if it doesn't exist
 DATA_DIR.mkdir(exist_ok=True)
-

@@ -15,14 +15,14 @@ if __name__ == "__main__":
     # Check if static files exist
     has_static = check_static_files()
     
-    # Get port from environment variable or use default
+    # Get host and port from environment variables or use defaults
+    host = os.environ.get("HOST", "127.0.0.1")
     port = int(os.environ.get("PORT", 9090))
     
-    print(f"Starting server on port {port}")
+    print(f"Starting server on {host}:{port}")
     if has_static:
-        print("Frontend will be served at http://172.104.129.10:9090")
-    print("API will be available at http://172.104.129.10:9090/api")
+        print(f"Frontend will be served at http://{host}:{port}")
+    print(f"API will be available at http://{host}:{port}/api")
     
     # Run the FastAPI app with uvicorn
-    uvicorn.run("api.main:app", host="172.104.129.10", port=port, reload=True)
-
+    uvicorn.run("api.main:app", host=host, port=port, reload=True)

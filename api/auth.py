@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 import pytz
 import json
 
-from .models import User, get_db, ActivityLog, Role, SessionLocal
+from api.models import User, get_db, ActivityLog, Role, SessionLocal
 
 # Router
 router = APIRouter(prefix="/api/auth", tags=["auth"])

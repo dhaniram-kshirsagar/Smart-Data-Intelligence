@@ -6,13 +6,12 @@ from sqlalchemy.orm import Session
 import os
 from pathlib import Path
 
-from .models import get_db, User
-from .auth import router as auth_router
-from .datapuur import router as datapuur_router
-from .kginsights import router as kginsights_router
-from .admin import router as admin_router
-from .middleware import ActivityLoggerMiddleware
-from .migrate_db import migrate_database
+from api.models import get_db, User
+from api.auth import router as auth_router
+from api.datapuur import router as datapuur_router
+from api.kginsights import router as kginsights_router
+from api.admin import router as admin_router
+from api.middleware import ActivityLoggerMiddleware
 
 # # Run database migrations
 # try:
@@ -98,7 +97,7 @@ async def startup_event():
     
     # Ensure roles have proper permissions
     try:
-        from .migrate_db import setup_default_role_permissions
+        from api.migrate_db import setup_default_role_permissions
         setup_default_role_permissions(db)
         print("Updated role permissions")
     except Exception as e:
@@ -123,4 +122,3 @@ if static_dir.exists():
             
         # Otherwise serve index.html for client-side routing
         return FileResponse(str(static_dir / "index.html"))
-
