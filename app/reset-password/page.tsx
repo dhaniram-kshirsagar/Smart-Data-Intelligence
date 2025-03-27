@@ -58,7 +58,7 @@ export default function ResetPasswordPage() {
       }
 
       // Call the API to reset password
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://172.104.129.10:9090/api"
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:9090/api"
       const response = await fetch(`${apiUrl}/auth/reset-password`, {
         method: "POST",
         headers: {
