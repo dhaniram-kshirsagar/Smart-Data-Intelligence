@@ -50,5 +50,5 @@ if exist out\* (
 echo Starting FastAPI server...
 :: Make sure we're in the correct directory
 cd %~dp0
-python -m api.run
+::python -m api.run
 

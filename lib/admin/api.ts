@@ -10,7 +10,7 @@ export async function fetchAdminData(): Promise<{
       if (process.env.NEXT_PUBLIC_API_URL) {
         return process.env.NEXT_PUBLIC_API_URL;
       }
-      return "http://localhost:9090/api";
+      return "http://172.104.129.10:9090/api";
     };
 
     const apiUrl = getApiUrl();
@@ -167,7 +167,7 @@ export async function createUser(userData: any): Promise<any> {
       if (process.env.NEXT_PUBLIC_API_URL) {
         return process.env.NEXT_PUBLIC_API_URL;
       }
-      return "http://localhost:9090/api";
+      return "http://172.104.129.10:9090/api";
     };
 
     const apiUrl = getApiUrl();
@@ -207,7 +207,7 @@ export async function updateUser(userId: number, userData: any): Promise<any> {
       if (process.env.NEXT_PUBLIC_API_URL) {
         return process.env.NEXT_PUBLIC_API_URL;
       }
-      return "http://localhost:9090/api";
+      return "http://172.104.129.10:9090/api";
     };
 
     const apiUrl = getApiUrl();
@@ -242,7 +242,7 @@ export async function deleteUser(userId: number): Promise<void> {
       if (process.env.NEXT_PUBLIC_API_URL) {
         return process.env.NEXT_PUBLIC_API_URL;
       }
-      return "http://localhost:9090/api";
+      return "http://172.104.129.10:9090/api";
     };
 
     const apiUrl = getApiUrl();
@@ -276,7 +276,7 @@ export async function updateSystemSetting(setting: string, value: any): Promise<
       if (process.env.NEXT_PUBLIC_API_URL) {
         return process.env.NEXT_PUBLIC_API_URL;
       }
-      return "http://localhost:9090/api";
+      return "http://172.104.129.10:9090/api";
     };
 
     const apiUrl = getApiUrl();
@@ -311,7 +311,7 @@ export async function runBackup(): Promise<any> {
       if (process.env.NEXT_PUBLIC_API_URL) {
         return process.env.NEXT_PUBLIC_API_URL;
       }
-      return "http://localhost:9090/api";
+      return "http://172.104.129.10:9090/api";
     };
 
     const apiUrl = getApiUrl();
@@ -345,7 +345,7 @@ export async function exportData(): Promise<any> {
       if (process.env.NEXT_PUBLIC_API_URL) {
         return process.env.NEXT_PUBLIC_API_URL;
       }
-      return "http://localhost:9090/api";
+      return "http://172.104.129.10:9090/api";
     };
 
     const apiUrl = getApiUrl();
@@ -379,7 +379,7 @@ export async function clearActivityLogs(days: number): Promise<void> {
       if (process.env.NEXT_PUBLIC_API_URL) {
         return process.env.NEXT_PUBLIC_API_URL;
       }
-      return "http://localhost:9090/api";
+      return "http://172.104.129.10:9090/api";
     };
 
     const apiUrl = getApiUrl();
@@ -413,7 +413,7 @@ export async function cleanupData(): Promise<any> {
       if (process.env.NEXT_PUBLIC_API_URL) {
         return process.env.NEXT_PUBLIC_API_URL;
       }
-      return "http://localhost:9090/api";
+      return "http://172.104.129.10:9090/api";
     };
 
     const apiUrl = getApiUrl();
