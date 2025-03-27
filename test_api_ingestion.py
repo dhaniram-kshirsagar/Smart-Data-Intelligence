@@ -3,7 +3,7 @@ import json
 import time
 
 # Configuration
-API_URL = "http://localhost:9595/api/datapuur"
+API_URL = "http://localhost:9090/api/datapuur"
 MOCK_API_URL = "http://localhost:3001/api/users"
 
 # First, let's get a token by logging in
@@ -12,7 +12,7 @@ def get_auth_token():
     try:
         # The API uses OAuth2 with form data for authentication
         login_response = requests.post(
-            "http://localhost:9595/api/auth/token",
+            "http://localhost:9090/api/auth/token",
             data={"username": "admin", "password": "admin123"},  # Using the default admin credentials
             headers={"Content-Type": "application/x-www-form-urlencoded"}
         )

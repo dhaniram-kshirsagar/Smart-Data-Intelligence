@@ -11,7 +11,7 @@ const getApiBaseUrl = () => {
   }
 
   // Default fallback
-  return "http://localhost:9595/api"
+  return "http://localhost:9090/api"
 }
 
 const API_BASE_URL = getApiBaseUrl()

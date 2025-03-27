@@ -15,12 +15,12 @@ try:
     has_static = check_static_files()
     
     # Get port from environment variable or use default
-    port = int(os.environ.get("PORT", 9595))
+    port = int(os.environ.get("PORT", 9090))
     
     print(f"Starting server on port {port}")
     if has_static:
-        print("Frontend will be served at http://localhost:9595")
-    print("API will be available at http://localhost:9595/api")
+        print("Frontend will be served at http://localhost:9090")
+    print("API will be available at http://localhost:9090/api")
     
     # Run the FastAPI app with uvicorn
     import uvicorn
