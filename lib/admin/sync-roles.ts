@@ -11,7 +11,7 @@ export async function syncRoles() {
       if (process.env.NEXT_PUBLIC_API_URL) {
         return process.env.NEXT_PUBLIC_API_URL
       }
-      return "http://localhost:9090/api"
+      return "http://172.104.129.10:9090/api"
     }
 
     const apiUrl = getApiUrl()
@@ -104,7 +104,7 @@ export async function syncAvailablePermissions() {
       if (process.env.NEXT_PUBLIC_API_URL) {
         return process.env.NEXT_PUBLIC_API_URL
       }
-      return "http://localhost:9090/api"
+      return "http://172.104.129.10:9090/api"
     }
 
     const apiUrl = getApiUrl()
@@ -176,7 +176,7 @@ export async function saveRoleToBackend(role: Role) {
       if (process.env.NEXT_PUBLIC_API_URL) {
         return process.env.NEXT_PUBLIC_API_URL
       }
-      return "http://localhost:9090/api"
+      return "http://172.104.129.10:9090/api"
     }
 
     const apiUrl = getApiUrl()

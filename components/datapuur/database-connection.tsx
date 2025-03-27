@@ -304,7 +304,7 @@ export function DatabaseConnection({
               name="host"
               value={connectionConfig.host}
               onChange={handleInputChange}
-              placeholder="e.g., localhost or 192.168.1.1"
+              placeholder="e.g., 172.104.129.10 or 192.168.1.1"
             />
           </div>
 

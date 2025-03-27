@@ -30,6 +30,6 @@ if __name__ == "__main__":
     handler = MockAPIHandler
     
     with socketserver.TCPServer(("", PORT), handler) as httpd:
-        print(f"Mock API server started at http://localhost:{PORT}")
-        print(f"Test endpoint: http://localhost:{PORT}/api/users")
+        print(f"Mock API server started at http://172.104.129.10:{PORT}")
+        print(f"Test endpoint: http://172.104.129.10:{PORT}/api/users")
         httpd.serve_forever()
