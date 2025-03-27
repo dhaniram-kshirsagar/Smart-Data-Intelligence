@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { RefreshCw } from "lucide-react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Checkbox } from "@/components/ui/checkbox"
 import { useAdminStore } from "@/lib/admin/store"
+import { saveRoleToBackend } from "@/lib/admin/sync-roles"
 
 interface EditRoleDialogProps {
   open: boolean
@@ -18,16 +19,35 @@ interface EditRoleDialogProps {
 export function EditRoleDialog({ open, onOpenChange, role }: EditRoleDialogProps) {
   const { roles, setRoles, availablePermissions, isProcessing, setIsProcessing, setNotification } = useAdminStore()
   const [editedRole, setEditedRole] = useState({
-    id: role.id,
-    name: role.name,
-    description: role.description,
-    permissions: [...role.permissions],
+    id: role?.id || 0,
+    name: role?.name || "",
+    description: role?.description || "",
+    permissions: role?.permissions_list || role?.permissions || [],
+    is_system_role: role?.is_system_role || false
   })
+
+  // Update the edited role when the role prop changes
+  useEffect(() => {
+    if (role) {
+      setEditedRole({
+        id: role.id || 0,
+        name: role.name || "",
+        description: role.description || "",
+        // Check for permissions_list first (from backend), then permissions (from frontend store)
+        permissions: role.permissions_list || role.permissions || [],
+        is_system_role: role.is_system_role || false
+      })
+      
+      // Debug log to help troubleshoot
+      console.log("Role data received:", role)
+      console.log("Permissions set:", role.permissions_list || role.permissions || [])
+    }
+  }, [role])
 
   const togglePermission = (permission: string) => {
     setEditedRole((prev) => {
       const permissions = prev.permissions.includes(permission)
-        ? prev.permissions.filter((p) => p !== permission)
+        ? prev.permissions.filter((p: string) => p !== permission)
         : [...prev.permissions, permission]
       return { ...prev, permissions }
     })
@@ -42,14 +62,34 @@ export function EditRoleDialog({ open, onOpenChange, role }: EditRoleDialogProps
       return
     }
 
+    // Check if the role is a system role
+    if (editedRole.is_system_role) {
+      setNotification({
+        type: "error",
+        message: "System roles cannot be modified",
+      })
+      return
+    }
+
+    // Check if the new name already exists (but ignore the current role)
+    const roleExists = roles.some((r) => r.id !== role.id && r.name.toLowerCase() === editedRole.name.toLowerCase())
+    if (roleExists) {
+      setNotification({
+        type: "error",
+        message: `Role "${editedRole.name}" already exists`,
+      })
+      return
+    }
+
     setIsProcessing(true)
     try {
-      // In a real app, this would call your API
-      // Here we're just updating the state directly
-      const updatedRoles = roles.map((r) => (r.id === editedRole.id ? editedRole : r))
-
-      // Update the roles in the store
-      setRoles(updatedRoles)
+      // Save the role to the backend
+      await saveRoleToBackend({
+        id: role.id,
+        name: editedRole.name,
+        description: editedRole.description,
+        permissions: editedRole.permissions,
+      })
 
       setNotification({
         type: "success",
@@ -61,11 +101,11 @@ export function EditRoleDialog({ open, onOpenChange, role }: EditRoleDialogProps
 
       // Clear notification after 3 seconds
       setTimeout(() => setNotification(null), 3000)
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error updating role:", error)
       setNotification({
         type: "error",
-        message: "Failed to update role",
+        message: error.message || "Failed to update role",
       })
 
       // Clear notification after 3 seconds
@@ -90,10 +130,12 @@ export function EditRoleDialog({ open, onOpenChange, role }: EditRoleDialogProps
               id="name"
               value={editedRole.name}
               onChange={(e) => setEditedRole({ ...editedRole, name: e.target.value })}
-              className="bg-background border-input text-foreground"
-              disabled={editedRole.name === "admin" || editedRole.name === "researcher" || editedRole.name === "user"}
-              required
+              placeholder="Enter role name"
+              disabled={editedRole.is_system_role}
             />
+            {editedRole.is_system_role && (
+              <p className="text-xs text-muted-foreground">System roles cannot be modified</p>
+            )}
           </div>
           <div className="space-y-2">
             <Label htmlFor="description">Description</Label>
@@ -101,23 +143,23 @@ export function EditRoleDialog({ open, onOpenChange, role }: EditRoleDialogProps
               id="description"
               value={editedRole.description}
               onChange={(e) => setEditedRole({ ...editedRole, description: e.target.value })}
-              className="bg-background border-input text-foreground"
-              placeholder="Role description"
+              placeholder="Enter role description"
+              disabled={editedRole.is_system_role}
             />
           </div>
           <div className="space-y-2">
             <Label>Permissions</Label>
             <div className="space-y-2 border border-border rounded-md p-4 max-h-48 overflow-y-auto">
               {availablePermissions.map((permission) => (
-                <div key={permission.id} className="flex items-center space-x-2">
+                <div key={permission} className="flex items-center space-x-2">
                   <Checkbox
-                    id={`permission-${permission.id}`}
-                    checked={editedRole.permissions.includes(permission.id)}
-                    onCheckedChange={() => togglePermission(permission.id)}
-                    disabled={editedRole.name === "admin" && permission.id === "user_management"}
+                    id={`permission-edit-${permission}`}
+                    checked={editedRole.permissions.includes(permission)}
+                    onCheckedChange={() => togglePermission(permission)}
+                    disabled={editedRole.is_system_role}
                   />
-                  <Label htmlFor={`permission-${permission.id}`} className="font-normal cursor-pointer">
-                    {permission.name}
+                  <Label htmlFor={`permission-edit-${permission}`} className="font-normal cursor-pointer">
+                    {permission}
                   </Label>
                 </div>
               ))}
@@ -128,14 +170,13 @@ export function EditRoleDialog({ open, onOpenChange, role }: EditRoleDialogProps
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button
-            className="bg-violet-600 hover:bg-violet-700 text-white btn-glow"
-            onClick={handleSaveChanges}
-            disabled={isProcessing}
+          <Button 
+            onClick={handleSaveChanges} 
+            disabled={isProcessing || editedRole.is_system_role}
           >
             {isProcessing ? (
               <>
-                <RefreshCw className="h-3 w-3 mr-1 animate-spin text-white" />
+                <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
                 Saving...
               </>
             ) : (
@@ -147,4 +188,3 @@ export function EditRoleDialog({ open, onOpenChange, role }: EditRoleDialogProps
     </Dialog>
   )
 }
-

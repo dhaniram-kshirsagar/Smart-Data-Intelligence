@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Checkbox } from "@/components/ui/checkbox"
 import { useAdminStore } from "@/lib/admin/store"
+import { saveRoleToBackend } from "@/lib/admin/sync-roles"
 
 interface AddRoleDialogProps {
   open: boolean
@@ -25,7 +26,7 @@ export function AddRoleDialog({ open, onOpenChange }: AddRoleDialogProps) {
   const togglePermission = (permission: string) => {
     setNewRole((prev) => {
       const permissions = prev.permissions.includes(permission)
-        ? prev.permissions.filter((p) => p !== permission)
+        ? prev.permissions.filter((p: string) => p !== permission)
         : [...prev.permissions, permission]
       return { ...prev, permissions }
     })
@@ -52,19 +53,12 @@ export function AddRoleDialog({ open, onOpenChange }: AddRoleDialogProps) {
 
     setIsProcessing(true)
     try {
-      // In a real app, this would call your API
-      // Here we're just updating the state directly
-      const newRoleWithId = {
-        id: roles.length + 1,
-        ...newRole,
-      }
-
-      // Update the roles in the store
-      setRoles([...roles, newRoleWithId])
-
-      // In a real app, you would also save the role to the backend
-      // For example:
-      // await saveRoleToBackend(newRoleWithId);
+      // Save the role to the backend
+      await saveRoleToBackend({
+        name: newRole.name,
+        description: newRole.description,
+        permissions: newRole.permissions,
+      })
 
       setNotification({
         type: "success",
@@ -81,7 +75,7 @@ export function AddRoleDialog({ open, onOpenChange }: AddRoleDialogProps) {
 
       // Clear notification after 3 seconds
       setTimeout(() => setNotification(null), 3000)
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error adding role:", error)
       setNotification({
         type: "error",
@@ -129,14 +123,14 @@ export function AddRoleDialog({ open, onOpenChange }: AddRoleDialogProps) {
             <Label>Permissions</Label>
             <div className="space-y-2 border border-border rounded-md p-4 max-h-48 overflow-y-auto">
               {availablePermissions.map((permission) => (
-                <div key={permission.id} className="flex items-center space-x-2">
+                <div key={permission} className="flex items-center space-x-2">
                   <Checkbox
-                    id={`permission-${permission.id}`}
-                    checked={newRole.permissions.includes(permission.id)}
-                    onCheckedChange={() => togglePermission(permission.id)}
+                    id={`permission-${permission}`}
+                    checked={newRole.permissions.includes(permission)}
+                    onCheckedChange={() => togglePermission(permission)}
                   />
-                  <Label htmlFor={`permission-${permission.id}`} className="font-normal cursor-pointer">
-                    {permission.name}
+                  <Label htmlFor={`permission-${permission}`} className="font-normal cursor-pointer">
+                    {permission}
                   </Label>
                 </div>
               ))}
@@ -166,4 +160,3 @@ export function AddRoleDialog({ open, onOpenChange }: AddRoleDialogProps) {
     </Dialog>
   )
 }
-

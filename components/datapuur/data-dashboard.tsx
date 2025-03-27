@@ -58,28 +58,28 @@ export function DataDashboard() {
 
   // Helper function to make authenticated API requests
   const fetchWithAuth = useCallback(async (url: string) => {
-    const token = localStorage.getItem('token')
-    
+    const token = localStorage.getItem("token")
+
     if (!token) {
       setAuthError("Authentication token not found. Please log in again.")
       throw new Error("Authentication token not found")
     }
-    
+
     const response = await fetch(url, {
       headers: {
-        'Authorization': `Bearer ${token}`
-      }
+        Authorization: `Bearer ${token}`,
+      },
     })
-    
+
     if (response.status === 401) {
       setAuthError("Your session has expired. Please log in again.")
       throw new Error("Authentication failed")
     }
-    
+
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`)
     }
-    
+
     return response.json()
   }, [])
 
@@ -92,7 +92,7 @@ export function DataDashboard() {
       // Fetch data sources
       const dataSources = await fetchWithAuth("/api/datapuur/sources")
       setDatasets(dataSources)
-      
+
       // Fetch metrics
       try {
         const metrics = await fetchWithAuth("/api/datapuur/metrics")
@@ -100,7 +100,7 @@ export function DataDashboard() {
       } catch (error) {
         console.error("Error fetching metrics:", error)
       }
-      
+
       // Fetch activities
       try {
         const activitiesData = await fetchWithAuth("/api/datapuur/activities")
@@ -108,7 +108,7 @@ export function DataDashboard() {
       } catch (error) {
         console.error("Error fetching activities:", error)
       }
-      
+
       // Fetch dashboard data
       try {
         const dashboardData = await fetchWithAuth("/api/datapuur/dashboard")
@@ -152,12 +152,12 @@ export function DataDashboard() {
         description: authError,
         variant: "destructive",
       })
-      
+
       // Redirect to login page after a short delay
       const timeoutId = setTimeout(() => {
         router.push("/login")
       }, 2000)
-      
+
       return () => clearTimeout(timeoutId)
     }
   }, [authError, toast, router])
@@ -359,3 +359,4 @@ export function DataDashboard() {
     </div>
   )
 }
+

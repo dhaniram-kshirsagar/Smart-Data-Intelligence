@@ -14,12 +14,12 @@ from .admin import router as admin_router
 from .middleware import ActivityLoggerMiddleware
 from .migrate_db import migrate_database
 
-# Run database migrations
-try:
-    migrate_database()
-    print("Database migrations completed successfully")
-except Exception as e:
-    print(f"Error running database migrations: {str(e)}")
+# # Run database migrations
+# try:
+#     migrate_database()
+#     print("Database migrations completed successfully")
+# except Exception as e:
+#     print(f"Error running database migrations: {str(e)}")
 
 app = FastAPI(title="Research AI API")
 
@@ -53,6 +53,8 @@ async def startup_event():
     #migrate_database() # Moved to before app instantiation
     
     db = next(get_db())
+    
+    # Create default users if they don't exist
     admin_user = db.query(User).filter(User.username == "admin").first()
     if not admin_user:
         hashed_password = User.get_password_hash("admin123")
@@ -93,6 +95,14 @@ async def startup_event():
         db.add(user)
         db.commit()
         print("Created initial regular user")
+    
+    # Ensure roles have proper permissions
+    try:
+        from .migrate_db import setup_default_role_permissions
+        setup_default_role_permissions(db)
+        print("Updated role permissions")
+    except Exception as e:
+        print(f"Error updating role permissions: {str(e)}")
 
 # Mount static files directory if it exists
 static_dir = Path(__file__).parent / "static"

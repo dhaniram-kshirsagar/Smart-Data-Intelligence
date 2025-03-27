@@ -1,28 +1,46 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import React, { useState, useEffect } from "react"
 import { UserPlus } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useAdminStore } from "@/lib/admin/store"
 import { EditRoleDialog } from "@/components/admin/dialogs/edit-role-dialog"
 import { AddRoleDialog } from "@/components/admin/dialogs/add-role-dialog"
+import { syncRoles, syncAvailablePermissions, saveRoleToBackend } from "@/lib/admin/sync-roles"
+import { Role } from "@/lib/admin/store"
 
 export function PermissionsTab() {
-  const { roles, availablePermissions } = useAdminStore()
+  const { roles, availablePermissions, setNotification } = useAdminStore()
   const [editRoleDialog, setEditRoleDialog] = useState(false)
   const [addRoleDialog, setAddRoleDialog] = useState(false)
-  const [currentRole, setCurrentRole] = useState(null)
+  const [currentRole, setCurrentRole] = useState<Role | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
 
-  const openEditRoleDialog = (role) => {
+  const openEditRoleDialog = (role: Role) => {
     setCurrentRole(role)
     setEditRoleDialog(true)
   }
 
-  // Ensure we get the latest roles when the component mounts
+  // Fetch roles when the component mounts
   useEffect(() => {
-    // This is just to ensure the component re-renders when roles change
-    // The actual roles are already in the store
-  }, [roles])
+    const fetchRoles = async () => {
+      setIsLoading(true)
+      try {
+        await syncRoles()
+        console.log("Roles synced successfully")
+      } catch (error: any) {
+        console.error("Failed to sync roles:", error)
+        setNotification({
+          type: "error",
+          message: "Failed to load roles from the server",
+        })
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    fetchRoles()
+  }, [setNotification])
 
   return (
     <div className="space-y-6">
@@ -42,40 +60,62 @@ export function PermissionsTab() {
       </p>
 
       <div className="bg-card p-6 rounded-lg border border-border">
-        <div className="space-y-4">
-          {roles.map((role) => (
-            <div key={role.id} className="p-4 border border-border rounded-lg">
-              <div className="flex justify-between items-start">
-                <div>
-                  <h4 className="text-card-foreground font-medium mb-2">{role.name}</h4>
-                  <p className="text-muted-foreground text-sm mb-2">{role.description}</p>
-                  <div className="flex flex-wrap gap-2 mt-2">
-                    {role.permissions.map((permission) => (
-                      <span key={permission} className="px-2 py-1 bg-accent rounded-md text-xs text-foreground">
-                        {availablePermissions.find((p) => p.id === permission)?.name || permission}
-                      </span>
-                    ))}
+        {isLoading ? (
+          <div className="flex justify-center items-center py-8">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-violet-700"></div>
+          </div>
+        ) : roles.length === 0 ? (
+          <div className="text-center py-8 text-muted-foreground">
+            No roles found. Click "Add Role" to create your first role.
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {roles.map((role: Role) => (
+              <div key={role.id} className="p-4 border border-border rounded-lg">
+                <div className="flex justify-between items-start">
+                  <div>
+                    <h4 className="text-card-foreground font-medium mb-2">
+                      {role.name}
+                      {role.is_system_role && (
+                        <span className="ml-2 px-2 py-0.5 bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300 rounded text-xs">
+                          System
+                        </span>
+                      )}
+                    </h4>
+                    <p className="text-muted-foreground text-sm mb-2">{role.description}</p>
+                    <div className="flex flex-wrap gap-2 mt-2">
+                      {role.permissions &&
+                        role.permissions.map((permission: string) => (
+                          <span key={permission} className="px-2 py-1 bg-accent rounded-md text-xs text-foreground">
+                            {permission}
+                          </span>
+                        ))}
+                    </div>
                   </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="border-violet-600 text-violet-600 hover:bg-violet-600/20 text-xs h-7"
+                    onClick={() => openEditRoleDialog(role)}
+                    disabled={role.is_system_role}
+                    title={role.is_system_role ? "System roles cannot be modified" : "Edit role"}
+                  >
+                    Edit Role
+                  </Button>
                 </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="border-violet-600 text-violet-600 hover:bg-violet-600/20 text-xs h-7"
-                  onClick={() => openEditRoleDialog(role)}
-                >
-                  Edit Role
-                </Button>
               </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </div>
 
-      {/* Dialogs */}
-      {editRoleDialog && <EditRoleDialog open={editRoleDialog} onOpenChange={setEditRoleDialog} role={currentRole} />}
-
+      {/* Add Role Dialog */}
       <AddRoleDialog open={addRoleDialog} onOpenChange={setAddRoleDialog} />
+
+      {/* Edit Role Dialog */}
+      {currentRole && (
+        <EditRoleDialog open={editRoleDialog} onOpenChange={setEditRoleDialog} role={currentRole} />
+      )}
     </div>
   )
 }
-

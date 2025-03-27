@@ -1,14 +1,30 @@
 import { create } from "zustand"
 
-interface AdminState {
+// Define types for roles and permissions
+export interface Role {
+  id?: number
+  name: string
+  description: string
+  permissions: string[]
+  is_system_role?: boolean
+  created_at?: string
+  updated_at?: string
+}
+
+export interface Notification {
+  type: "success" | "error"; 
+  message: string
+}
+
+export interface AdminState {
   loading: boolean
   setLoading: (loading: boolean) => void
 
   error: string | null
   setError: (error: string | null) => void
 
-  notification: { type: "success" | "error"; message: string } | null
-  setNotification: (notification: { type: "success" | "error"; message: string } | null) => void
+  notification: Notification | null
+  setNotification: (notification: Notification | null) => void
 
   stats: any
   setStats: (stats: any) => void
@@ -22,21 +38,48 @@ interface AdminState {
   systemSettings: any
   setSystemSettings: (systemSettings: any) => void
 
-  roles: any[]
-  setRoles: (roles: any[]) => void
+  roles: Role[]
+  setRoles: (roles: Role[]) => void
 
-  availablePermissions: any[]
-  setAvailablePermissions: (permissions: any[]) => void
+  availablePermissions: string[]
+  setAvailablePermissions: (permissions: string[]) => void
 
   isProcessing: boolean
   setIsProcessing: (isProcessing: boolean) => void
 
-  // Add a function to add a role if it doesn't exist
+  addRole: (role: Role) => void
+  updateRole: (updatedRole: Role) => void
+  deleteRole: (roleId: number) => void
   addRoleIfNotExists: (roleName: string, description?: string) => void
+
+  datasets: any[]
+  setDatasets: (datasets: any[]) => void
+
+  datasetDetails: any
+  setDatasetDetails: (datasetDetails: any) => void
+
+  schemas: any[]
+  setSchemas: (schemas: any[]) => void
+
+  schemaDetails: any
+  setSchemaDetails: (schemaDetails: any) => void
+
+  ingestions: any[]
+  setIngestions: (ingestions: any[]) => void
+
+  ingestionDetails: any
+  setIngestionDetails: (ingestionDetails: any) => void
+
+  ingestionLogs: any[]
+  setIngestionLogs: (ingestionLogs: any[]) => void
+
+  notifications: any[]
+  addNotification: (notification: Notification) => void
+  removeNotification: (id: string) => void
 }
 
-export const useAdminStore = create<AdminState>((set, get) => ({
-  loading: true,
+export const useAdminStore = create<AdminState>((set) => ({
+  loading: false,
   setLoading: (loading) => set({ loading }),
 
   error: null,
@@ -61,63 +104,104 @@ export const useAdminStore = create<AdminState>((set, get) => ({
     {
       id: 1,
       name: "admin",
-      description: "Full access to all system features and settings.",
-      permissions: ["user_management", "system_settings", "data_management", "activity_logs"],
+      description: "Administrator with full access",
+      permissions: ["data:read", "data:write", "user:read", "user:write", "role:read", "role:write"],
+      is_system_role: true
     },
     {
       id: 2,
-      name: "researcher",
-      description: "Access to research tools and data analysis features.",
-      permissions: ["datapuur", "kginsights", "data_management"],
+      name: "user",
+      description: "Regular user with limited access",
+      permissions: ["data:read"],
+      is_system_role: true
     },
     {
       id: 3,
-      name: "user",
-      description: "Basic access to application features.",
-      permissions: ["view_reports", "personal_settings"],
-    },
-    // Add the "view" role explicitly
-    {
-      id: 4,
-      name: "view",
-      description: "View-only access to application features.",
-      permissions: ["view_reports"],
+      name: "researcher",
+      description: "Researcher with data access",
+      permissions: ["data:read", "data:write", "schema:read", "ingestion:read"],
+      is_system_role: true
     },
   ],
   setRoles: (roles) => set({ roles }),
+  
+  addRole: (role) => set((state) => ({ 
+    roles: [...state.roles, role] 
+  })),
+  
+  updateRole: (updatedRole) => set((state) => ({ 
+    roles: state.roles.map((role) => 
+      role.id === updatedRole.id ? updatedRole : role
+    ) 
+  })),
+  
+  deleteRole: (roleId) => set((state) => ({ 
+    roles: state.roles.filter((role) => role.id !== roleId) 
+  })),
+  
+  addRoleIfNotExists: (roleName, description) => set((state) => {
+    const existingRole = state.roles.find((role) => role.name === roleName);
+    if (!existingRole) {
+      // Calculate new ID safely, handling undefined values
+      const maxId = state.roles.length > 0 
+        ? Math.max(...state.roles.map((role) => role.id || 0)) 
+        : 0;
+      
+      const newRole = {
+        id: maxId + 1,
+        name: roleName,
+        description: description || '',
+        permissions: [],
+        is_system_role: false
+      };
+      return { roles: [...state.roles, newRole] };
+    }
+    return state;
+  }),
 
   availablePermissions: [
-    { id: "user_management", name: "User Management" },
-    { id: "system_settings", name: "System Settings" },
-    { id: "data_management", name: "Data Management" },
-    { id: "activity_logs", name: "Activity Logs" },
-    { id: "datapuur", name: "DataPuur Access" },
-    { id: "kginsights", name: "KGInsights Access" },
-    { id: "view_reports", name: "View Reports" },
-    { id: "personal_settings", name: "Personal Settings" },
+    "data:read",
+    "data:write",
+    "user:read",
+    "user:write",
+    "role:read",
+    "role:write",
+    "schema:read",
+    "schema:write",
+    "ingestion:read",
+    "ingestion:write"
   ],
   setAvailablePermissions: (permissions) => set({ availablePermissions: permissions }),
 
   isProcessing: false,
   setIsProcessing: (isProcessing) => set({ isProcessing }),
 
-  // Add a function to add a role if it doesn't exist
-  addRoleIfNotExists: (roleName, description) => {
-    const { roles } = get()
+  datasets: [],
+  setDatasets: (datasets) => set({ datasets }),
 
-    // Check if role already exists
-    if (!roles.some((role) => role.name === roleName)) {
-      // Add the role
-      const newRole = {
-        id: roles.length + 1,
-        name: roleName,
-        description: description || `Auto-created role: ${roleName}`,
-        permissions: ["view_reports"],
-      }
+  datasetDetails: null,
+  setDatasetDetails: (datasetDetails) => set({ datasetDetails }),
 
-      set({ roles: [...roles, newRole] })
-      console.log(`Added missing role: ${roleName}`)
-    }
-  },
+  schemas: [],
+  setSchemas: (schemas) => set({ schemas }),
+
+  schemaDetails: null,
+  setSchemaDetails: (schemaDetails) => set({ schemaDetails }),
+
+  ingestions: [],
+  setIngestions: (ingestions) => set({ ingestions }),
+
+  ingestionDetails: null,
+  setIngestionDetails: (ingestionDetails) => set({ ingestionDetails }),
+
+  ingestionLogs: [],
+  setIngestionLogs: (ingestionLogs) => set({ ingestionLogs }),
+
+  notifications: [],
+  addNotification: (notification) => set((state) => ({
+    notifications: [...state.notifications, { ...notification, id: Date.now().toString() }]
+  })),
+  removeNotification: (id) => set((state) => ({
+    notifications: state.notifications.filter((notification) => notification.id !== id)
+  })),
 }))
-

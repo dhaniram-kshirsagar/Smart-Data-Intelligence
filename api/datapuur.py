@@ -23,7 +23,7 @@ from pydantic import BaseModel, Field
 import numpy as np
 
 from .models import User, get_db, ActivityLog, Role, UploadedFile, IngestionJob
-from .auth import get_current_active_user, has_role, log_activity
+from .auth import get_current_active_user, has_role, has_permission, log_activity
 from .data_models import DataSource, DataMetrics, Activity, DashboardData
 from .models import get_db, SessionLocal
 
@@ -714,7 +714,7 @@ def process_db_ingestion_with_db(job_id, db_type, db_config, chunk_size, db):
 async def upload_file(
     file: UploadFile = File(...),
     chunkSize: int = Form(1000),
-    current_user: User = Depends(has_role("researcher")),
+    current_user: User = Depends(has_permission("data:upload")),  # Ensure this matches the permission in roles
     db: Session = Depends(get_db)
 ):
     """Upload a file for data ingestion"""
@@ -766,7 +766,7 @@ async def upload_file(
 @router.get("/schema/{file_id}", status_code=status.HTTP_200_OK)
 async def get_file_schema(
     file_id: str,
-    current_user: User = Depends(has_role("researcher")),
+    current_user: User = Depends(has_permission("schema:read")),
     db: Session = Depends(get_db)
 ):
     """Get schema for an uploaded file"""
@@ -815,7 +815,7 @@ async def get_file_schema(
 @router.post("/test-connection", status_code=status.HTTP_200_OK)
 async def test_database_connection(
     connection_info: dict,
-    current_user: User = Depends(has_role("researcher")),
+    current_user: User = Depends(has_permission("database:connect")),
     db: Session = Depends(get_db)
 ):
     """Test a database connection"""
@@ -859,7 +859,7 @@ async def test_database_connection(
 @router.post("/db-schema", status_code=status.HTTP_200_OK)
 async def get_database_schema(
     connection_info: dict,
-    current_user: User = Depends(has_role("researcher")),
+    current_user: User = Depends(has_permission("database:read")),
     db: Session = Depends(get_db)
 ):
     """Get schema from a database table"""
@@ -899,7 +899,7 @@ async def get_database_schema(
 async def ingest_file(
     request: FileIngestionRequest,
     background_tasks: BackgroundTasks,
-    current_user: User = Depends(has_role("researcher")),
+    current_user: User = Depends(has_permission("ingestion:create")),
     db: Session = Depends(get_db)
 ):
     """Start file ingestion job"""
@@ -960,7 +960,7 @@ async def ingest_file(
 async def ingest_database(
     request: DatabaseConfig,
     background_tasks: BackgroundTasks,
-    current_user: User = Depends(has_role("researcher")),
+    current_user: User = Depends(has_permission("ingestion:create")),
     db: Session = Depends(get_db)
 ):
     """Start database ingestion job"""
@@ -1023,7 +1023,7 @@ async def ingest_database(
 @router.get("/job-status/{job_id}", response_model=JobStatus)
 async def get_job_status(
     job_id: str,
-    current_user: User = Depends(has_role("researcher")),
+    current_user: User = Depends(has_permission("ingestion:read")),
     db: Session = Depends(get_db)
 ):
     """Get status of an ingestion job"""
@@ -1054,7 +1054,7 @@ async def get_job_status(
 @router.post("/cancel-job/{job_id}", status_code=status.HTTP_200_OK)
 async def cancel_job(
     job_id: str,
-    current_user: User = Depends(has_role("researcher")),
+    current_user: User = Depends(has_permission("ingestion:create")),
     db: Session = Depends(get_db)
 ):
     """Cancel an ingestion job"""
@@ -1119,7 +1119,7 @@ async def get_ingestion_history(
     source: str = Query(""),
     status: str = Query(""),
     search: str = Query(""),
-    current_user: User = Depends(has_role("researcher")),
+    current_user: User = Depends(has_permission("ingestion:read")),  # Ensure this matches the permission in roles
     db: Session = Depends(get_db)
 ):
     """Get history of ingestion jobs with filtering and pagination"""
@@ -1221,7 +1221,7 @@ async def get_ingestion_history(
 @router.get("/ingestion-preview/{ingestion_id}", response_model=PreviewResponse)
 async def get_ingestion_preview(
     ingestion_id: str,
-    current_user: User = Depends(has_role("researcher")),
+    current_user: User = Depends(has_permission("ingestion:read")),
     db: Session = Depends(get_db)
 ):
     """Get preview data for an ingestion"""
@@ -1351,7 +1351,7 @@ async def get_ingestion_preview(
 @router.get("/ingestion-schema/{ingestion_id}", response_model=SchemaResponse)
 async def get_ingestion_schema(
     ingestion_id: str,
-    current_user: User = Depends(has_role("researcher")),
+    current_user: User = Depends(has_permission("schema:read")),
     db: Session = Depends(get_db)
 ):
     """Get schema for an ingestion"""
@@ -1466,7 +1466,7 @@ async def get_ingestion_schema(
 @router.get("/debug-schema/{ingestion_id}")
 async def debug_schema(
     ingestion_id: str,
-    current_user: User = Depends(has_role("researcher")),
+    current_user: User = Depends(has_permission("schema:read")),
     db: Session = Depends(get_db)
 ):
     """Debug endpoint to check schema data directly"""
@@ -1522,7 +1522,7 @@ async def debug_schema(
 @router.get("/ingestion-statistics/{ingestion_id}", response_model=StatisticsResponse)
 async def get_ingestion_statistics(
     ingestion_id: str,
-    current_user: User = Depends(has_role("researcher")),
+    current_user: User = Depends(has_permission("schema:read")),
     db: Session = Depends(get_db)
 ):
     """Get statistics for an ingestion"""
@@ -1627,7 +1627,7 @@ async def get_ingestion_statistics(
 async def download_ingestion(
     ingestion_id: str,
     format: str = Query("csv", regex="^(csv|json|parquet)$"),
-    current_user: User = Depends(has_role("researcher")),
+    current_user: User = Depends(has_permission("ingestion:read")),
     db: Session = Depends(get_db)
 ):
     """Download ingestion data in specified format"""
@@ -1697,7 +1697,7 @@ async def download_ingestion(
 # Original routes from the template - updated to use database
 @router.get("/sources", response_model=List[DataSource])
 async def get_data_sources(
-    current_user: User = Depends(has_role("researcher")),
+    current_user: User = Depends(has_permission("data:read")),
     db: Session = Depends(get_db)
 ):
     # Get real data sources from ingestion jobs
@@ -1726,7 +1726,7 @@ async def get_data_sources(
 
 @router.get("/metrics", response_model=DataMetrics)
 async def get_data_metrics(
-    current_user: User = Depends(has_role("researcher")),
+    current_user: User = Depends(has_permission("data:read")),
     db: Session = Depends(get_db)
 ):
     # Calculate real metrics from ingestion jobs
@@ -1790,7 +1790,7 @@ async def get_data_metrics(
 
 @router.get("/activities", response_model=List[Activity])
 async def get_activities(
-    current_user: User = Depends(has_role("researcher")),
+    current_user: User = Depends(has_permission("data:read")),
     db: Session = Depends(get_db)
 ):
     # Get real activities from ingestion jobs
@@ -1823,7 +1823,7 @@ async def get_activities(
 
 @router.get("/dashboard", response_model=Dict[str, Any])
 async def get_dashboard_data(
-    current_user: User = Depends(has_role("researcher")),
+    current_user: User = Depends(has_permission("data:read")),
     db: Session = Depends(get_db)
 ):
     # Get real metrics and activities
@@ -1890,7 +1890,7 @@ async def get_dashboard_data(
 async def get_file_history(
     page: int = Query(1, ge=1),
     limit: int = Query(10, ge=1, le=100),
-    current_user: User = Depends(has_role("researcher")),
+    current_user: User = Depends(has_permission("data:read")),
     db: Session = Depends(get_db)
 ):
     """Get history of uploaded files"""
@@ -1949,7 +1949,7 @@ async def get_file_history(
 @router.get("/preview/{file_id}", status_code=status.HTTP_200_OK)
 async def preview_file(
     file_id: str,
-    current_user: User = Depends(has_role("researcher")),
+    current_user: User = Depends(has_permission("data:read")),
     db: Session = Depends(get_db)
 ):
     """Preview a file"""
@@ -2036,7 +2036,7 @@ async def preview_file(
 @router.get("/download/{file_id}", status_code=status.HTTP_200_OK)
 async def download_file(
     file_id: str,
-    current_user: User = Depends(has_role("researcher")),
+    current_user: User = Depends(has_permission("data:read")),
     db: Session = Depends(get_db)
 ):
     """Download a file"""

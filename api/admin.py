@@ -323,7 +323,31 @@ async def get_roles(
     current_user: User = Depends(has_role("admin"))
 ):
     roles = db.query(Role).all()
-    return [{"id": role.id, "name": role.name, "description": role.description} for role in roles]
+    result = []
+    
+    import json
+    for role in roles:
+        # Extract permissions from the description if it's JSON
+        try:
+            if role.description and role.description.startswith('{'):
+                description_data = json.loads(role.description)
+                permissions = description_data.get("permissions", [])
+                description_text = description_data.get("text", "")
+            else:
+                permissions = []
+                description_text = role.description or ""
+        except (json.JSONDecodeError, TypeError):
+            permissions = []
+            description_text = role.description or ""
+        
+        result.append({
+            "id": role.id, 
+            "name": role.name, 
+            "description": description_text,
+            "permissions": permissions
+        })
+    
+    return result
 
 @router.post("/roles")
 async def create_role(
@@ -378,6 +402,23 @@ async def update_role(
     if "description" in role_data:
         role.description = role_data["description"]
     
+    # Store permissions in the database
+    # We'll use a JSON string in the description field for now
+    # In a real app, you would have a separate permissions table
+    if "permissions" in role_data:
+        import json
+        # Extract the existing description and permissions
+        try:
+            current_data = json.loads(role.description) if role.description and role.description.startswith('{') else {}
+        except json.JSONDecodeError:
+            current_data = {"text": role.description}
+        
+        # Update with new permissions
+        current_data["permissions"] = role_data["permissions"]
+        
+        # Store back as JSON
+        role.description = json.dumps(current_data)
+    
     db.commit()
     db.refresh(role)
     
@@ -389,7 +430,22 @@ async def update_role(
         details=f"Updated role {role.name} (ID: {role.id})"
     )
     
-    return {"id": role.id, "name": role.name, "description": role.description}
+    # Extract permissions from the description for the response
+    import json
+    try:
+        description_data = json.loads(role.description) if role.description and role.description.startswith('{') else {}
+        permissions = description_data.get("permissions", [])
+        description_text = description_data.get("text", role.description)
+    except (json.JSONDecodeError, TypeError):
+        permissions = []
+        description_text = role.description
+    
+    return {
+        "id": role.id, 
+        "name": role.name, 
+        "description": description_text,
+        "permissions": permissions
+    }
 
 @router.delete("/roles/{role_id}")
 async def delete_role(

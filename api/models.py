@@ -6,6 +6,7 @@ from datetime import datetime
 import bcrypt
 from typing import Generator
 import pytz
+import json
 
 # Create database directory if it doesn't exist
 os.makedirs(os.path.dirname(os.path.abspath(__file__)), exist_ok=True)
@@ -14,9 +15,6 @@ os.makedirs(os.path.dirname(os.path.abspath(__file__)), exist_ok=True)
 SQLALCHEMY_DATABASE_URL = f"sqlite:///{os.path.join(os.path.dirname(os.path.abspath(__file__)), 'database.db')}"
 engine = create_engine(SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-Base = declarative_base()
-
-# Dependency to get the database  autoflush=False, bind=engine)
 Base = declarative_base()
 
 # Dependency to get the database
@@ -52,6 +50,28 @@ class Role(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, unique=True, index=True)
     description = Column(String, nullable=True)
+    permissions = Column(Text, nullable=True)  # Store permissions as JSON array
+    is_system_role = Column(Boolean, default=False)  # Flag for system-defined roles
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    def get_permissions(self):
+        """Get the list of permissions for this role"""
+        if not self.permissions:
+            return []
+        try:
+            return json.loads(self.permissions)
+        except json.JSONDecodeError:
+            return []
+    
+    def has_permission(self, permission):
+        """Check if this role has a specific permission"""
+        # Admin role always has all permissions
+        if self.name == "admin":
+            return True
+            
+        permissions = self.get_permissions()
+        return permission in permissions
 
 class ActivityLog(Base):
     __tablename__ = "activity_logs"
@@ -69,8 +89,6 @@ class ActivityLog(Base):
     __table_args__ = (
         Index('idx_activity_logs_timestamp', 'timestamp'),
     )
-
-# Add these new model classes after the ActivityLog class but before the "Create tables" line
 
 class UploadedFile(Base):
     __tablename__ = "uploaded_files"
@@ -101,4 +119,3 @@ class IngestionJob(Base):
 
 # Create tables
 Base.metadata.create_all(bind=engine)
-

@@ -12,13 +12,16 @@ export function generateStaticParams() {
 }
 
 export default function DataProfilePage({ params }: { params: { id: string } }) {
+  // Clean the ID parameter to remove any file extensions
+  const cleanId = params.id.replace(/\.[^/.]+$/, "")
+
   return (
     <DataPuurLayout>
       <div className="flex-1 space-y-4 p-4 md:p-8 pt-6">
         <div className="flex items-center justify-between">
           <h2 className="text-3xl font-bold tracking-tight">Data Profile</h2>
         </div>
-        <DataProfile datasetId={params.id} />
+        <DataProfile datasetId={cleanId} />
       </div>
     </DataPuurLayout>
   )
